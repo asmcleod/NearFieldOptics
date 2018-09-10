@@ -2,7 +2,7 @@ import os
 import re
 import time
 import numpy
-import cPickle
+import pickle
 from common import misc
 from common.log import Logger
 from numpy.linalg import solve
@@ -53,7 +53,7 @@ class TipModel(object):
             normalization=cls.get_signal(*args,**kwargs)
             
             #Take note that signal will be a dictionary of harmonics
-            for key in signal.keys():
+            for key in list(signal.keys()):
                 #if signal is a harmonic, normalize
                 if 'signal_' in key: signal[key]/=normalization[key]
                 else: signal['norm_'+key]=normalization[key]
@@ -128,7 +128,7 @@ class TipModel(object):
         """Takes z-axis as first axis, frequency as final axis."""
         
         if verbose: Logger.write('Demodulating...')
-        if verbose: Logger.write('\tSignal shape: %s'%`signal.shape`)
+        if verbose: Logger.write('\tSignal shape: %s'%repr(signal.shape))
         
         #Assume z-axis is first axis#
         ts_shape=(len(cls.ts),)+(1,)*(signal.ndim-1)
@@ -204,7 +204,7 @@ class _ExtendedMonopoleModel_(TipModel):
                             localization=localization)
         
         cls.raw_signal=gtop/(1-cls.response*gbottom)
-        if verbose: Logger.write('\tSignal shape: %s'%`cls.raw_signal.shape`)
+        if verbose: Logger.write('\tSignal shape: %s'%repr(cls.raw_signal.shape))
         
         if demodulate:
             signal=cls.__demodulate__(cls.raw_signal,harmonic=harmonic)
@@ -249,7 +249,7 @@ class _ExtendedMonopoleModel_(TipModel):
         dGdq=kerneltop*rp_grid
         
         #Integrate over q-vector
-        if verbose: Logger.write('\tdGdq shape: %s'%`dGdq.shape`)
+        if verbose: Logger.write('\tdGdq shape: %s'%repr(dGdq.shape))
         cls.gtop=simps(dGdq,x=qs,axis=-1)
         
         if verbose: Logger.write('\tDone.')
@@ -278,7 +278,7 @@ class _ExtendedMonopoleModel_(TipModel):
         dGdq=kernelbottom*rp_grid
         
         #Integrate over q-vector
-        if verbose: Logger.write('\tdGdq shape: %s'%`dGdq.shape`)
+        if verbose: Logger.write('\tdGdq shape: %s'%repr(dGdq.shape))
         cls.gbottom=simps(dGdq,x=qs,axis=-1)
         
         if verbose: Logger.write('\tDone.')
@@ -311,7 +311,7 @@ class _DipoleModel_(TipModel):
         g=cls.G(rp,freqs,qs,zs)
         
         raw_signals=1/(1-cls.response_phase*bonus_alpha*g)-1
-        if verbose: Logger.write('\tSignal shape: %s'%`raw_signals.shape`)
+        if verbose: Logger.write('\tSignal shape: %s'%repr(raw_signals.shape))
             
         #Flip raw signal to make z-axis first
         raw_signals=AWA(numpy.array(raw_signals),\
@@ -358,7 +358,7 @@ class _DipoleModel_(TipModel):
         cls.gs_grid=qs_grid
         cls.kernel=kernel
         
-        if verbose: Logger.write('\tdGdq shape: %s'%`dGdq.shape`)
+        if verbose: Logger.write('\tdGdq shape: %s'%repr(dGdq.shape))
         cls.g=simps(dGdq,x=qs,axis=-1)
         
         if verbose: Logger.write('\tDone.')
@@ -408,7 +408,7 @@ class _SSEQModel_(TipModel):
         if Nts is None: Nts=50
         Nts=numpy.max((Nts,len(zs)))
         if verbose: Logger.write('Demodulating via spline interpolation over %i approach points...'%Nts)
-        if verbose: Logger.write('\tSignal shape: %s'%`signal.shape`)
+        if verbose: Logger.write('\tSignal shape: %s'%repr(signal.shape))
         
         #Interpolate at desired z-values#
         cls.ts=numpy.linspace(0,.5,Nts) #Need only integrate over half period
@@ -666,7 +666,7 @@ class _SSEQModel_(TipModel):
                        axes=[nzs*a,freqs], axis_names=['Z','Frequency']) #z axis in units of a
         cls.raw_signals=raw_signals
         
-        if verbose: Logger.write('\tSignal shape: %s'%`cls.raw_signals.shape`)
+        if verbose: Logger.write('\tSignal shape: %s'%repr(cls.raw_signals.shape))
         
         #Demodulate if requested#
         if demodulate:
@@ -721,8 +721,8 @@ class _LightningRodModel_(TipModel):
     def __call__(self,*args,**kwargs):
         
         ##Make sure all "ambient" arguments are identified
-        if not kwargs.has_key('ambient_rp'): kwargs['ambient_rp']=None
-        if not kwargs.has_key('normalization_ambient_rp'): kwargs['normalization_ambient_rp']=None
+        if 'ambient_rp' not in kwargs: kwargs['ambient_rp']=None
+        if 'normalization_ambient_rp' not in kwargs: kwargs['normalization_ambient_rp']=None
         ambient_rp=kwargs['ambient_rp']
         normalization_ambient_rp=kwargs.pop('normalization_ambient_rp')
         
@@ -759,7 +759,7 @@ class _LightningRodModel_(TipModel):
             normalization=self.get_signal(*args,**kwargs)
             
             #Take note that signal will be a dictionary of harmonics
-            for key in signal.keys():
+            for key in list(signal.keys()):
                 signal['sample_'+key]=signal[key]
                 signal['norm_'+key]=normalization[key]
                 #if signal is a harmonic, normalize
@@ -790,7 +790,7 @@ class _LightningRodModel_(TipModel):
         return zs
     
     @staticmethod
-    def demodulate(signals,harmonics=range(5),Nts=None,\
+    def demodulate(signals,harmonics=list(range(5)),Nts=None,\
                    quadrature=numrec.GL):
         """Takes z-axis as first axis, frequency as final axis."""
     
@@ -891,7 +891,10 @@ class _LightningRodModel_(TipModel):
         try: file=open(os.path.join(charge_data_dir,filename))
         except IOError: Logger.raiseException('No pre-computed Lambda0 data was found for parameters:\n'+\
                                               'Nqs=%i\n'%Nqs)
-        self.charges0=cPickle.load(file)
+        
+        from common import unpickle_legacy
+        self.charges0=unpickle_legacy(filename)
+        
         file.close()
         
         zs0=self.charges0.axes[0]
@@ -948,12 +951,13 @@ class _LightningRodModel_(TipModel):
                      %(geometry_title,L,skin_depth,quadrature_type,Nzs,Nqs,freq)
                      
         if verbose: Logger.write('Loading charge data from file "%s"...'%filename)
-        try: file=open(os.path.join(charge_data_dir,filename),'r')
+        try: file=open(os.path.join(charge_data_dir,filename),'rb')
         except IOError:
             Logger.raiseException('No pre-computed charge data was found correspondent '+\
                                   'to the desired charge profile:\n'+\
                                   '"%s"'%filename)
-        charge_data=cPickle.load(file); file.close()
+        from common.misc import unpickle_legacy
+        charge_data=unpickle_legacy(os.path.join(charge_data_dir,filename))
         
         self.qs,self.wqs=charge_data['quadrature'] #qs, ws
         self.charges=charge_data['charges'] #axes s, z x q
@@ -1013,15 +1017,15 @@ class _LightningRodModel_(TipModel):
         #Load/modify all the next stuff only if reloading model
         if self.load_params['reload_model']:
         
-            for key in kwargs.keys():
+            for key in list(kwargs.keys()):
                 if key.startswith('load_'):
                     new_key=key[len('load_'):]
                     self.load_params[new_key]=kwargs.pop(key)
             
             #Store all the provided geometry and quadrature parameters
             if interpolation: self.quadrature_params['interpolation']=interpolation
-            if kwargs.has_key('geometry'): self.geometric_params['geometry']=kwargs.pop('geometry')
-            if kwargs.has_key('taper_angle'): self.geometric_params['taper_angle']=kwargs.pop('taper_angle')
+            if 'geometry' in kwargs: self.geometric_params['geometry']=kwargs.pop('geometry')
+            if 'taper_angle' in kwargs: self.geometric_params['taper_angle']=kwargs.pop('taper_angle')
             
             ##Load charge data
             self.load_charge_data()
@@ -1763,10 +1767,10 @@ def build_charge_distributions(geometry='cone',L=19000/30.,Rtop=0,Nzs=244,taper_
             neg_peaks=numrec.peakdetect(qs*numpy.abs(integral_xform),lookahead=10)[1]
             if len(neg_peaks):
                 global inds,vals
-                inds,vals=zip(*neg_peaks)
+                inds,vals=list(zip(*neg_peaks))
                 for ind in inds:
                     if qs[ind]>1:
-                        print 'Found cutoff at q=%s'%qs[ind]
+                        print('Found cutoff at q=%s'%qs[ind])
                         integral_xform[ind:]=0 #eliminate fictitious values beyond cutoff
                         break
                     
@@ -1831,10 +1835,10 @@ def build_charge_distributions(geometry='cone',L=19000/30.,Rtop=0,Nzs=244,taper_
             if find_q_cutoff:
                 neg_peaks=numrec.peakdetect(qs*numpy.abs(integral_xform),lookahead=10)[1]
                 if len(neg_peaks):
-                    inds,vals=zip(*neg_peaks); i=0; q_peak=qs[inds[i]]
+                    inds,vals=list(zip(*neg_peaks)); i=0; q_peak=qs[inds[i]]
                     while i<len(inds) and qs[inds[i]]<1: i+=1
                     if qs[inds[i]]>1:
-                        print 'Found cutoff at q=%s'%qs[inds[i]]
+                        print('Found cutoff at q=%s'%qs[inds[i]])
                         integral_xform[inds[i]:]=0 #eliminate fictitious values beyond cutoff
             
             integral_xform=AWA(integral_xform,axes=[qs],axis_names=['s'])
@@ -1857,7 +1861,7 @@ def build_charge_distributions(geometry='cone',L=19000/30.,Rtop=0,Nzs=244,taper_
     
     Logger.write('Writing charge data to file:\n\t"%s"'%filename)
     file=open(filename,'wb')
-    cPickle.dump(d,file); file.close()
+    pickle.dump(d,file); file.close()
     
     az.reuse_kernel=False
     

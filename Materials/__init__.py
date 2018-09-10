@@ -200,9 +200,9 @@ strengths_c=numpy.array([.4,     .13,    .61,    .5])#*eps0_c
 amps_c=strengths_c*ws_c**2#*gs_c
 
 LiFePO4=AnisotropicMaterial2(eps_infinity=[eps0_a,eps0_c,eps0_b],\
-                             eps_lps=[zip(amps_a,ws_a,gs_a*damping_factor),
-                                      zip(amps_c,ws_c,gs_c*damping_factor),\
-                                      zip(amps_b,ws_b,gs_b*damping_factor)])
+                             eps_lps=[list(zip(amps_a,ws_a,gs_a*damping_factor)),
+                                      list(zip(amps_c,ws_c,gs_c*damping_factor)),\
+                                      list(zip(amps_b,ws_b,gs_b*damping_factor))])
 
 #Include TO modes 44 onwards
 #XX Modes 52,56,61,67,70,79,83
@@ -471,6 +471,13 @@ Kucirkova_144nm_params[:,0]/=Kucirkova_144nm_params[:,3] #Divide by gaussian wid
 
 SiO2_144nm=IsotropicMaterial(eps_infinity=1.96,\
                              eps_vps=Kucirkova_144nm_params)
+
+########################################################################################
+#--- TaS2: high temperature (metallic) and low temperature (charge-ordered)
+########################################################################################
+
+TaS2_NCCDW=TaS2_metal=TabulatedMaterialFromFile('TaS2_eps_230K.csv')
+TaS2_CCDW=TabulatedMaterialFromFile('TaS2_eps_30K.csv')
 
 ######################
 #---Compound Materials

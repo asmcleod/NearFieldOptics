@@ -7,7 +7,7 @@ import numpy; pi=numpy.pi
 import scipy
 import cmath
 import copy
-import cPickle
+import pickle
 from common.log import Logger
 from common import misc
 from common.baseclasses import ArrayWithAxes as AWA
@@ -42,7 +42,7 @@ def _vectorize_cmath_():
 
     ####Some names made to be usable variables####
     cmath_dict=cmath.__dict__
-    for key in cmath_dict.keys():
+    for key in list(cmath_dict.keys()):
         func=cmath_dict[key]
         if not hasattr(func,'__call__'): continue
         elif key=='sqrt': cmath_dict[key]=safe_sqrt
@@ -126,14 +126,16 @@ class BaseIsotropicMaterial(Material):
                      entrance=None,entrance_kz=None,\
                      surface=None,screening=1,**kwargs):
         
-        if not entrance: entrance=Air
+        if entrance is None:
+            assert entrance_kz is None,'`entrance_kz` can only be specified when `entrance` material is specified as well!'
+            entrance=Air
+        if entrance_kz is None: entrance_kz=entrance.get_kz
         
         ##Get holder for data, and expanded freq & q##
         freq,q,rp=_prepare_freq_and_q_holder_(freq,q,\
                                               angle=angle,\
                                               entrance=entrance)
-
-        if not entrance_kz: entrance_kz=entrance.get_kz
+        
         kz1=entrance_kz(freq,q)
         kz2=self.get_kz(freq,q,**kwargs)
         
@@ -165,14 +167,16 @@ class BaseIsotropicMaterial(Material):
                      surface=None,screening=1,\
                      magnetic=False,**kwargs):
         
-        if not entrance: entrance=Air
+        if entrance is None:
+            assert entrance_kz is None,'`entrance_kz` can only be specified when `entrance` material is specified as well!'
+            entrance=Air
+        if entrance_kz is None: entrance_kz=entrance.get_kz
         
         ##Get holder for data, and expanded freq & q##
         freq,q,tp=_prepare_freq_and_q_holder_(freq,q,\
                                               angle=angle,\
                                               entrance=entrance)
 
-        if not entrance_kz: entrance_kz=entrance.get_kz
         kz1=entrance_kz(freq,q)
         kz2=self.get_kz(freq,q)
         
@@ -195,14 +199,16 @@ class BaseIsotropicMaterial(Material):
                      entrance=None,entrance_kz=None,\
                      surface=None,**kwargs):
         
-        if not entrance: entrance=Air
+        if entrance is None:
+            assert entrance_kz is None,'`entrance_kz` can only be specified when `entrance` material is specified as well!'
+            entrance=Air
+        if entrance_kz is None: entrance_kz=entrance.get_kz
         
         ##Get holder for data, and expanded freq & q##
         freq,q,rp=_prepare_freq_and_q_holder_(freq,q,\
                                               angle=angle,\
                                               entrance=entrance)
         
-        if not entrance_kz: entrance_kz=entrance.get_kz
         kz1=entrance_kz(freq,q)
         kz2=self.get_kz(freq,q)
         
@@ -362,7 +368,7 @@ class IsotropicMaterial(BaseIsotropicMaterial):
     def epsilon(self,freq,q=None):
         
         eps=self.eps_infinity
-        for prop_func,props in self.eps_property_functions.iteritems():
+        for prop_func,props in self.eps_property_functions.items():
             eps+=self.invoke_property_function(freq, q, prop_func, props)
                 
         return ensure_complex(eps)
@@ -370,7 +376,7 @@ class IsotropicMaterial(BaseIsotropicMaterial):
     def mu(self,freq,q=None):
         
         mu=self.mu_infinity
-        for prop_func,props in self.mu_property_functions.iteritems():
+        for prop_func,props in self.mu_property_functions.items():
             mu+=self.invoke_property_function(freq, q, prop_func, props)
                 
         return ensure_complex(mu)
@@ -495,7 +501,9 @@ class TabulatedMaterialFromFile(TabulatedMaterial):
         epsfile=os.path.join(self.data_dir,epsfile)
         file=open(epsfile)
         
-        if epsfile.lower().endswith('.pickle'): eps_data=cPickle.load(file)
+        if epsfile.lower().endswith('.pickle'):
+            file=open(epsfile,'rb')
+            eps_data=pickle.load(file,encoding='bytes')
         elif epsfile.lower().endswith('.csv'):
             freq,eps1,eps2=misc.extract_array(file, dtype=numpy.float).T
             eps_data=AWA(eps1+1j*eps2,axes=[freq],axis_names=['Frequency [cm^-1]'])
@@ -536,6 +544,44 @@ class IsotropicSurface(Surface):
            (eps2*kz1+eps1*kz2+4*pi*kz1*kz2*sigma/(c*omega))
 
         return ensure_complex(rp)
+    
+class TabulatedSurface(IsotropicSurface):
+    
+    def __init__(self,conductivity_data,factor=1):
+        
+        self._conductivity_data=conductivity_data
+        self.factor=factor
+        
+        IsotropicSurface.__init__(self)
+        
+    def conductivity(self,freq,q=0):
+        
+        return self.factor*\
+                self._conductivity_data.interpolate_axis(freq,axis=0)
+    
+class TabulatedSurfaceFromFile(TabulatedSurface):
+    
+    data_dir=os.path.join(os.path.dirname(__file__),\
+                          'Tabulated')
+    
+    def __init__(self,conductivity_file,factor=1):
+        
+        Logger.write('Loading tabulated surface conductivity data from file "%s"...'%conductivity_file)
+        if not os.path.exists(conductivity_file):
+            conductivity_file=os.path.join(self.data_dir,conductivity_file)
+        file=open(conductivity_file)
+        
+        if conductivity_file.lower().endswith('.pickle'):
+            file=open(epsfile,'rb')
+            conductivity_data=pickle.load(file,encoding='bytes')
+        elif conductivity_file.lower().endswith('.csv'):
+            freq,sigma1,sigma2=misc.extract_array(file, dtype=numpy.float).T
+            conductivity_data=AWA(sigma1+1j*sigma2,axes=[freq],axis_names=['Frequency [cm^-1]'])
+        else: Logger.error('File type not understood for file "%s".'%conductivity_file)
+        
+        file.close()
+        
+        TabulatedSurface.__init__(self,conductivity_data,factor=factor)
 
 class SingleLayerGraphene(IsotropicSurface):
 
@@ -753,9 +799,9 @@ class LayeredMedia(object):
         
         self.rps=[]
         #Get entrance/exit materials
-        if not entrance: entrance=self.get_entrance()
+        if entrance is None: entrance=self.get_entrance()
         else: entrance=Air
-        if not exit: exit=self.get_exit()
+        if exit is None: exit=self.get_exit()
         else: exit=Air
         layers=self.get_layers()
         
@@ -769,18 +815,26 @@ class LayeredMedia(object):
                                                         angle=angle,\
                                                         entrance=entrance)
         
+        print('Interface #0')
         ##Get rho at exit##
         below_material=exit
+        print('material (substrate) below interface:',below_material)
         #Get any surface materials at bottom#
         surfaces=[]
         while isinstance(layers[-1],Surface):
             surfaces.append(layers.pop())
             if not len(layers): break
         above_material=layers[-1].get_material()
+        print('material above interface:',above_material)
         #Get rp for this interface#
+        if isinstance(above_material,BaseAnisotropicMaterial):
+            entrance_kz=above_material.get_extraordinary_kz
+        else: entrance_kz=above_material.get_kz
         rp=below_material.reflection_p(freq,q,angle,\
                                         surface=surfaces,\
-                                        entrance=above_material,**kwargs)
+                                        entrance=above_material,
+                                        entrance_kz=entrance_kz,**kwargs)
+        print('Abs rho:',numpy.mean(numpy.abs(rp)))
         rho=rp; self.rps.append(rp)
         
         #See how many bulk media we have#
@@ -789,9 +843,11 @@ class LayeredMedia(object):
         
         ##Iterate over layers from bottom to build up rho##
         for i in range(number_bulk_media):
+            print('Interface #%i'%(i+1))
             
             below_layer=layers.pop(-1)
             below_material=below_layer.get_material()
+            print('material below interface:',below_material)
             #print 'Material below: %s'%below_material.name
             
             #Again collect surface materials at next interface#
@@ -800,12 +856,15 @@ class LayeredMedia(object):
             
             #Get rp for this interface#
             above_material=layers[-1].get_material()
+            print('material above interface:',above_material)
             if isinstance(above_material,BaseAnisotropicMaterial):
                 entrance_kz=above_material.get_extraordinary_kz
             else: entrance_kz=above_material.get_kz
             rp=below_material.reflection_p(freq,q,angle,\
                                             surface=surfaces,\
+                                            entrance=above_material,\
                                             entrance_kz=entrance_kz)
+            print('Abs rp:',numpy.mean(numpy.abs(rp)))
             self.rps.append(rp)
             
             #Make rho#
@@ -815,8 +874,9 @@ class LayeredMedia(object):
             
             below_kz=below_kz(freq_grid,q_grid)
             below_thickness=below_layer.get_thickness()
-            rho=(rp+rho*numpy.exp(2*1j*below_kz*below_thickness))/\
-                (1+rp*rho*numpy.exp(2*1j*below_kz*below_thickness))
+            rho=(rp+rho*numpy.exp(+2*1j*below_kz*below_thickness))/\
+                (1+rp*rho*numpy.exp(+2*1j*below_kz*below_thickness))
+            print('Abs rho:',numpy.mean(numpy.abs(rho)))
                 
         return rho
     
@@ -1049,7 +1109,7 @@ class BaseAnisotropicMaterial(Material):
         """Assumes c-axis of uniaxial crystal is perpendicular to reflection plane.
         @TODO: generalize."""
         
-        if not entrance: entrance=Air
+        if entrance is None: entrance=Air
         
         ##Get holder for data, and expanded freq & q##
         freq,q,rp=_prepare_freq_and_q_holder_(freq,q,\
@@ -1059,7 +1119,7 @@ class BaseAnisotropicMaterial(Material):
         eps1=entrance.epsilon(freq,q)
         eps2_o=self.ordinary_epsilon(freq,q)*screening
         
-        if not entrance_kz: entrance_kz=entrance.get_kz
+        if entrance_kz is None: entrance_kz=entrance.get_kz
         ki=entrance_kz(freq,q)
         ke=self.get_kz(freq,q)
         num=eps2_o*ki-eps1*ke
@@ -1173,7 +1233,7 @@ class AnisotropicMaterial(BaseAnisotropicMaterial,IsotropicMaterial):
         parallel to the "c" axis of the crystal."""
         
         eps=copy.copy(self.eps_infinity)
-        for prop,prop_func in self.eps_property_functions.iteritems():
+        for prop,prop_func in self.eps_property_functions.items():
              eps_addition=self.invoke_property_function(freq,q,prop,prop_func)
              for i in range(3):
                  eps[i]+=eps_addition[i]
@@ -1186,7 +1246,7 @@ class AnisotropicMaterial(BaseAnisotropicMaterial,IsotropicMaterial):
         parallel to the "c" axis of the crystal."""
         
         mu=copy.copy(self.mu_infinity)
-        for prop,prop_func in self.mu_property_functions.iteritems():
+        for prop,prop_func in self.mu_property_functions.items():
              mu_addition=self.invoke_property_function(freq,q,prop,prop_func)
              for i in range(3):
                  mu[i]+=mu_addition[i]
@@ -1220,11 +1280,14 @@ class TabulatedAnisotropicMaterialFromFile(TabulatedAnisotropicMaterial):
     
     def __init__(self,epsfile,factor=1):
         
+        if not epsfile.startswith(os.path.sep):
+            epsfile=os.path.join(self.data_dir,epsfile)
         Logger.write('Loading tabulated material data from file "%s"...'%epsfile)
-        epsfile=os.path.join(self.data_dir,epsfile)
         file=open(epsfile)
         
-        if epsfile.lower().endswith('.pickle'): eps_data=cPickle.load(file)
+        if epsfile.lower().endswith('.pickle'):
+            file=open(epsfile,'rb')
+            eps_data=pickle.load(file,encoding='bytes')
         elif epsfile.lower().endswith('.csv'):
             freq,ordinary_eps1,ordinary_eps2,\
                 extraordinary_eps1,extraordinary_eps2=misc.extract_array(file, dtype=numpy.float).T
@@ -1677,7 +1740,7 @@ class UniaxialMaterial(BaseUniaxialMaterial,IsotropicMaterial):
         parallel to the extraordinary axis of the crystal."""
         
         eps=copy.copy(self.eps_infinity)
-        for prop,prop_func in self.eps_property_functions.iteritems():
+        for prop,prop_func in self.eps_property_functions.items():
              eps_addition=self.invoke_property_function(freq,q,prop,prop_func)
              for i in range(2):
                  eps[i]+=eps_addition[i]
@@ -2163,7 +2226,7 @@ class AnisotropicMaterial2(BaseAnisotropicMaterial2,IsotropicMaterial):
         parallel to the "c" axis of the crystal."""
         
         eps=copy.copy(self.eps_infinity)
-        for prop,prop_func in self.eps_property_functions.iteritems():
+        for prop,prop_func in self.eps_property_functions.items():
              eps_addition=self.invoke_property_function(freq,q,prop,prop_func)
              for i in range(3):
                  eps[i]+=eps_addition[i]
@@ -2176,7 +2239,7 @@ class AnisotropicMaterial2(BaseAnisotropicMaterial2,IsotropicMaterial):
         parallel to the "c" axis of the crystal."""
         
         mu=copy.copy(self.mu_infinity)
-        for prop,prop_func in self.mu_property_functions.iteritems():
+        for prop,prop_func in self.mu_property_functions.items():
              mu_addition=self.invoke_property_function(freq,q,prop,prop_func)
              for i in range(3):
                  mu[i]+=mu_addition[i]

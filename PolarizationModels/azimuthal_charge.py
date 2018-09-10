@@ -1,6 +1,6 @@
 import os
 import numpy
-import cPickle
+import pickle
 import time
 from scipy import linalg
 from scipy.special import j0,j1,erf
@@ -22,17 +22,17 @@ def make_ellipk_interpolator(xmax=-.0001,xmin=-100000,N=100000,remake=False):
 
     filename=os.path.join(basedir,'ellipk_database.pickle')
     if remake or not os.path.isfile(filename):
-        print 'Building ellipk interpolator object:\nxmin=%s, xmax=%s, N=%s'%(xmin,xmax,N)
+        print('Building ellipk interpolator object:\nxmin=%s, xmax=%s, N=%s'%(xmin,xmax,N))
         x=-numpy.exp(-numpy.linspace(numpy.log(-xmax),
                                      numpy.log(-xmin),
                                      N))
         ellipk_database=AWA(ellipk(x),axes=[x])
         file=open(filename,'w')
-        cPickle.dump(ellipk_database,file); file.close()
+        pickle.dump(ellipk_database,file); file.close()
     else:
-        print 'Retrieving ellipk interpolator'
+        print('Retrieving ellipk interpolator')
         file=open(filename)
-        ellipk_database=cPickle.load(file); file.close()
+        ellipk_database=pickle.load(file); file.close()
 
     ellipk_interpolator=interp1d(x=ellipk_database.axes[0],
                                  y=ellipk_database,
@@ -44,7 +44,7 @@ def make_ellipk_interpolator(xmax=-.0001,xmin=-100000,N=100000,remake=False):
 
 def interp_ellipk(x):
 
-    print 'Using interpolation from database to compute ellipk function...'
+    print('Using interpolation from database to compute ellipk function...')
     min=ellipk_interpolator.x.min()
     max=ellipk_interpolator.x.max()
 
@@ -57,11 +57,11 @@ def interp_ellipk(x):
 
     if outside.any():
         x_outside=x[outside]
-        print 'Fraction of argument that could not be interpolated: %s'%(len(x_outside)/\
-                                                                         float(numpy.prod(x.shape)))
+        print('Fraction of argument that could not be interpolated: %s'%(len(x_outside)/\
+                                                                         float(numpy.prod(x.shape))))
         y_outside=ellipk(x_outside)
         y[outside]=y_outside
-    print 'Done.'
+    print('Done.')
 
     return y
 

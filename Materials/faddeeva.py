@@ -85,7 +85,7 @@ def graphFaddeevaAccuracy(nt1, nt2):
   relErr[relErr<-16.] = -16.
   minErr = numpy.min(relErr)
   maxErr = numpy.max(relErr)
-  print "rel diff (between NT=", nt1, "and NT=", nt2, ") ranges between 10^" + str(maxErr) + " and 10^" + str(minErr)
+  print("rel diff (between NT=", nt1, "and NT=", nt2, ") ranges between 10^" + str(maxErr) + " and 10^" + str(minErr))
   numC = int(math.ceil(maxErr)-math.floor(minErr))
   cp = pylab.contourf(X,Y,relErr,numC)
   #pylab.clabel(cp, inline=1)

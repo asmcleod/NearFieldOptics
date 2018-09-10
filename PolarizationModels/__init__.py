@@ -1,6 +1,6 @@
 import os
 import numpy
-import cPickle
+import pickle
 from common import misc
 from common import numerics
 from common.baseclasses import ArrayWithAxes as AWA
