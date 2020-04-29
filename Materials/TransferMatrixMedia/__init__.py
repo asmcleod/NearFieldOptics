@@ -75,7 +75,7 @@ class LayeredMediaTM(LayeredMedia):
         C.assemble_analytical_reflection_coefficient()
         rs = C.get_numerical_reflection_coefficient(freq,q)
         rsAWA+=rs
-        return rsAWA.T
+        return rsAWA
         
     def analytical_reflection_s(self):
         """Get sympy analytical expression of reflection coefficient for s-polarized light."""
@@ -105,7 +105,7 @@ class LayeredMediaTM(LayeredMedia):
         C.assemble_analytical_reflection_coefficient()
         rp = C.get_numerical_reflection_coefficient(freq,q)
         rpAWA+=rp
-        return rpAWA.T
+        return rpAWA
     
     def analytical_reflection_p(self):
         """Get sympy analytical expression of reflection coefficient for p-polarized light."""
@@ -137,13 +137,13 @@ class LayeredMediaTM(LayeredMedia):
         K=C.get_numerical_kernel(freq,q)
         
         K_AWA+=K
-        return K_AWA.T
+        return K_AWA
     
-    def analytical_reflection_p(self):
+    def analytical_coulomb_kernel(self,layer_number=2,mode='after'):
         """Get sympy analytical expression of reflection coefficient for p-polarized light."""
         C = Calculator.Calculator(self.T_p)
         C.assemble_analytical_reflection_coefficient()
-        rp = C.get_analytical_reflection_coefficient()
+        rp = C.get_analytical_coulomb_kernel(layer_number,mode)
         return rp
     
     def transmission_s(self,freq,q=0,angle=None,\
@@ -167,7 +167,7 @@ class LayeredMediaTM(LayeredMedia):
         C.assemble_analytical_transmission_coefficient()
         ts = C.get_numerical_transmission_coefficient(freq,q)
         tsAWA+=ts
-        return tsAWA.T
+        return tsAWA
     
     def analytical_transmission_s(self):
         """Get sympy analytical expression of transmission coefficient for s-polarized light."""
@@ -197,7 +197,7 @@ class LayeredMediaTM(LayeredMedia):
         C.assemble_analytical_transmission_coefficient()
         tp = C.get_numerical_transmission_coefficient(freq,q)
         tpAWA+=tp
-        return tpAWA.T
+        return tpAWA
     
     def analytical_transmission_p(self):
         """Get sympy analytical expression of transmission coefficient for p-polarized light."""
@@ -213,7 +213,7 @@ class LayeredMediaTM(LayeredMedia):
         C.assemble_analytical_H_field(index,'before')
         h = C.get_numerical_H_field(freq,q)
         hAWA+=h
-        return hAWA.T
+        return hAWA
     
     def analytical_h_field(self,index,side):
         C = Calculator.Calculator(self.T_p)
@@ -228,7 +228,7 @@ class LayeredMediaTM(LayeredMedia):
         C.assemble_analytical_kernel(index,'before')
         k = C.get_numerical_kernel(freq,q)
         kAWA+=k
-        return kAWA.T
+        return kAWA
         
     def analytical_Coulomb_kernel(self,index,side):
         
