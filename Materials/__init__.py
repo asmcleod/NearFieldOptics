@@ -1,4 +1,5 @@
 from .material_types import *
+from .TransferMatrixMedia import *
 
 #########
 #---Al2O3
@@ -524,5 +525,12 @@ except IOError:
 #---VO2
 ##########################
 #
-VO2_Insulating=TabulatedMaterialFromFile('VO2_Insulating.pickle')
-VO2_Metallic=TabulatedMaterialFromFile('VO2_Metallic.pickle')
+VO2_Insulating=TabulatedMaterialFromFile('VO2_295K.csv')
+VO2_Metallic=TabulatedMaterialFromFile('VO2_360K.csv')
+
+##########################
+#---V2O3
+##########################
+#
+V2O3_Insulating=TabulatedMaterialFromFile('Stewart_V2O3film_insulating.csv')
+V2O3_Metallic=TabulatedMaterialFromFile('Stewart_V2O3film_metallic.csv')

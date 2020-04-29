@@ -12,7 +12,7 @@ from common.baseclasses import ArrayWithAxes as AWA
 from common.numerics import Spectrum,broadcast_items,number_types,differentiate
 from common import numerical_recipes as numrec
 
-from scipy.special import j0,j1,hyp1f2,struve
+from scipy.special import j0,j1,struve
 from NearFieldOptics.PolarizationModels import azimuthal_charge as az
 
 basedir=os.path.dirname(__file__)
@@ -688,6 +688,25 @@ class _SSEQModel_(TipModel):
     
 SSEQModel=_SSEQModel_()
 
+def get_charge_data_path(geometry,L,skin_depth,taper_angle,quadrature_type,Nzs,Nqs,freq):
+    
+    if geometry=='sphere': L=2
+
+    geometry_title=geometry.capitalize()
+    if geometry in ('cone','hyperboloid'):
+        filepath=os.path.join(charge_data_dir,\
+                              '%sCharge_L=%.2E_SkinDepth=%.2E_Taper=%i_Quad=%s_Nzs=%i_Nqs=%i_freq=%.2E.pickle'%\
+                              (geometry_title,L,skin_depth,taper_angle,quadrature_type,Nzs,Nqs,freq))
+    elif geometry=='PtSi': #Taper angle is disabled
+        filepath=os.path.join(charge_data_dir,\
+                              '%sCharge_L=%.2E_SkinDepth=%.2E_Quad=%s_Nzs=%i_Nqs=%i_freq=%.2E.pickle'%\
+                              (geometry_title,L,skin_depth,quadrature_type,Nzs,Nqs,freq))
+    else:
+        filepath=os.path.join(charge_data_dir,\
+                              '%sCharge_L=%.2E_SkinDepth=%.2E_Quad=%s_Nzs=%i_Nqs=%i_freq=%.2E.pickle'%\
+                              (geometry_title,L,skin_depth,quadrature_type,Nzs,Nqs,freq))
+            
+    return filepath
 
 class _LightningRodModel_(TipModel):
         
@@ -716,7 +735,7 @@ class _LightningRodModel_(TipModel):
                        'q_correction_exponent':1,\
                        'interpolation':'linear'} #This b-value obtains convergence for both SiC and SiO2 at Nqs>=144
     
-    resonant_sample=True 
+    resonant_sample=True #Internal self consistency with calculated charge response requires this to be True
     
     def __call__(self,*args,**kwargs):
         
@@ -938,26 +957,16 @@ class _LightningRodModel_(TipModel):
         freq=self.load_params['freq']
         quadrature_type=self.load_params['quadrature']
         
-        geometry_title=geometry[0].capitalize()+geometry[1:]
-        if geometry_title in ('Cone','Hyperboloid'):
-            filename='%sCharge_L=%i_SkinDepth=%1.2f_Taper=%i_Quad=%s_Nzs=%i_Nqs=%i_freq=%1.4f.pickle'\
-                     %(geometry_title,L,skin_depth,taper,quadrature_type,Nzs,Nqs,freq)
-        elif geometry=='PtSi': #Taper angle is disabled
-            filename=os.path.join(charge_data_dir,\
-                                  '%sCharge_L=%i_SkinDepth=%1.2f_Quad=%s_Nzs=%i_Nqs=%i_freq=%1.4f.pickle'%\
-                                  (geometry_title,L,skin_depth,quadrature_type,Nzs,Nqs,freq))
-        else:
-            filename='%sCharge_L=%i_SkinDepth=%1.2f_Quad=%s_Nzs=%i_Nqs=%i_freq=%1.4f.pickle'\
-                     %(geometry_title,L,skin_depth,quadrature_type,Nzs,Nqs,freq)
+        filepath=get_charge_data_path(geometry,L,skin_depth,taper_angle,quadrature_type,Nzs,Nqs,freq)
                      
-        if verbose: Logger.write('Loading charge data from file "%s"...'%filename)
-        try: file=open(os.path.join(charge_data_dir,filename),'rb')
+        if verbose: Logger.write('Loading charge data from file "%s"...'%filepath)
+        try: file=open(filepath,'rb')
         except IOError:
             Logger.raiseException('No pre-computed charge data was found correspondent '+\
                                   'to the desired charge profile:\n'+\
-                                  '"%s"'%filename)
+                                  '"%s"'%filepath)
         from common.misc import unpickle_legacy
-        charge_data=unpickle_legacy(os.path.join(charge_data_dir,filename))
+        charge_data=unpickle_legacy(filepath)
         
         self.qs,self.wqs=charge_data['quadrature'] #qs, ws
         self.charges=charge_data['charges'] #axes s, z x q
@@ -999,8 +1008,7 @@ class _LightningRodModel_(TipModel):
                 self.charges0Refl=charge_data['charges_%s'%beam_shape]
         
     
-    def prepare_model(self,zs=None,zmin=1e-1,Nzs=None,Nqs=122,amplitude=80,a=None,interpolation=None,\
-                      kwargs={}):
+    def prepare_model(self,zs=None,zmin=1e-1,Nzs=None,Nqs=122,amplitude=80,a=None,interpolation=None,**kwargs):
 
         if verbose: Logger.write('Preparing model...')
     
@@ -1070,21 +1078,21 @@ class _LightningRodModel_(TipModel):
     
     def Lambda0Vector(self,qxs):
         
-        Lambda0=self.Lambda0.interpolate_axis(qxs,axis=0,extrapolate=True)
+        Lambda0=self.Lambda0.interpolate_axis(qxs,axis=0,extrapolate=True,bounds_error=False)
         
         return numpy.matrix(Lambda0).T
     
     def Lambda0VectorRefl(self,qxs):
         
-        Lambda0Refl=self.Lambda0Refl.interpolate_axis(qxs,axis=0,extrapolate=True)
+        Lambda0Refl=self.Lambda0Refl.interpolate_axis(qxs,axis=0,extrapolate=True,bounds_error=False)
         
         return numpy.matrix(Lambda0Refl).T
     
     def LambdaMatrix(self,qxs):
         
         #Should be no bounds error, we only interpolate into sampled region
-        Lambda=self.Lambda.interpolate_axis(qxs,axis=0,kind='linear')\
-                         .interpolate_axis(qxs,axis=1,kind='linear')
+        Lambda=self.Lambda.interpolate_axis(qxs,axis=0,kind='linear',bounds_error=False)\
+                         .interpolate_axis(qxs,axis=1,kind='linear',bounds_error=False)
                          
         return numpy.matrix(Lambda)
         
@@ -1095,7 +1103,7 @@ class _LightningRodModel_(TipModel):
         k=2*numpy.pi*freq
         
         #exclude near the light line as comparatively unimportant
-        if self.resonant_sample: Qs=numpy.sqrt(k**2+(qxs/(a*1e-7))**2)
+        if self.resonant_sample: Qs=numpy.sqrt(k**2+(qxs/(a*1e-7))**2) #This is technically the right way to evaluate either way, since qxs correspond to out-of-plane propogation
         else: Qs=qxs/(a*1e-7)
         
         #Evaluate surface response#
@@ -1192,12 +1200,13 @@ class _LightningRodModel_(TipModel):
         #return a 2-D array
         return pzs
     
-    def get_charge_distribution(self,zs,psi=None):
+    def get_charge_distribution(self,zs=None,psi=None):
         "Provide zs in nm."
         
         qxs=self.qxs
         wqxs=self.wqxs
         a=self.geometric_params['a']
+        
         if psi is None: 
             try: psi=self.psi
             except AttributeError:
@@ -1207,13 +1216,19 @@ class _LightningRodModel_(TipModel):
         #iterate through all q values and weight charges accordingly
         charge=0
         for i,qx in enumerate(qxs):
-            #the axis of charges[i] is z in units of a, so feed it zs/a values
-            charge+=psi[i]*self.charges.interpolate_axis(qx,axis=0)\
-                              .interpolate_axis(zs/float(a),axis=-1,\
-                                                extrapolate=False,bounds_error=False,\
-                                                fill_value=0)*wqxs[i]
+            #Make sure we weight by wqxs
+            charge=charge+psi[i]*self.charges.interpolate_axis(qx,axis=0)*wqxs[i]
             
-        return AWA(charge,axes=[zs],axis_names=['Z [nm]'])
+        zs_norm=charge.axes[0]
+        charge=AWA(charge,axes=[zs_norm*a],axis_names=['Z [nm]'])
+        
+        #Evaluate at specific z-values (in nm), if requested
+        if zs is not None:
+            charge=charge.interpolate_axis(zs,axis=-1,\
+                                           extrapolate=False,bounds_error=False,\
+                                           fill_value=0)
+            
+        return charge
     
     def get_radiation_pattern(self,thetas=numpy.linspace(0,360,500),\
                               psi=None,freq=None,\
@@ -1262,12 +1277,13 @@ class _LightningRodModel_(TipModel):
             
         return rad
     
-    def get_momentum_distribution(self):
+    def get_momentum_distribution(self,psi=None):
         
         qxs=self.qxs
         wqxs=self.wqxs
         
-        psi_qxs_vec=numpy.matrix(self.psi).T
+        if psi is None: psi=self.psi
+        psi_qxs_vec=numpy.matrix(psi).T
         LambdaMat=self.LambdaMatrix(qxs)
         WMat=numpy.matrix(numpy.diag(wqxs))
         QMat=numpy.matrix(numpy.diag(qxs))
@@ -1703,13 +1719,12 @@ def build_charge_distributions(geometry='cone',L=19000/30.,Rtop=0,Nzs=244,taper_
         delta=skin_depth/factor
         exp_grid=(numpy.exp(-ss_grid*zs_grid)-numpy.exp(-zs_grid/delta))\
                   /(1-ss_grid*delta)
-        pref_grid=exp_grid*j0(Qs_grid*Rs_grid)
     else:
         exp_grid=numpy.exp(-ss_grid*zs_grid)
-        pref_grid=exp_grid*j0(Qs_grid*Rs_grid) #zs and Rs units of a, ss units of 1/a
     
+    pref_grid=exp_grid*j0(Qs_grid*Rs_grid) #zs and Rs units of a, ss units of 1/a
     where_faulty=(numpy.abs(pref_grid)>exp_grid)
-    pref_grid[where_faulty]=0
+    pref_grid[where_faulty]=0 #2020.03.25: what is this??
 
     #Parameters relating to dipole moment of a charge distribution
     for angle in incidence_angles:
@@ -1763,6 +1778,7 @@ def build_charge_distributions(geometry='cone',L=19000/30.,Rtop=0,Nzs=244,taper_
             integral_xform=numpy.sum(wzs_grid*integrand,axis=0)
         
         #If a cutoff exists, it's where we find a negative peak s.t. q_peak>1
+        #2020.03.25: what is this??
         if find_q_cutoff:
             neg_peaks=numrec.peakdetect(qs*numpy.abs(integral_xform),lookahead=10)[1]
             if len(neg_peaks):
@@ -1770,7 +1786,7 @@ def build_charge_distributions(geometry='cone',L=19000/30.,Rtop=0,Nzs=244,taper_
                 inds,vals=list(zip(*neg_peaks))
                 for ind in inds:
                     if qs[ind]>1:
-                        print('Found cutoff at q=%s'%qs[ind])
+                        Logger.write('\tFound cutoff at q=%s'%qs[ind])
                         integral_xform[ind:]=0 #eliminate fictitious values beyond cutoff
                         break
                     
@@ -1844,23 +1860,11 @@ def build_charge_distributions(geometry='cone',L=19000/30.,Rtop=0,Nzs=244,taper_
             integral_xform=AWA(integral_xform,axes=[qs],axis_names=['s'])
             
             d['integral_xforms_%s'%V_ext]=integral_xform
-
-    geometry_title=geometry[0].upper()+geometry[1:]
-    if geometry in ('cone','hyperboloid'):
-        filename=os.path.join(charge_data_dir,\
-                              '%sCharge_L=%i_SkinDepth=%1.2f_Taper=%s_Quad=%s_Nzs=%i_Nqs=%i_freq=%1.4f.pickle'%\
-                              (geometry_title,L,skin_depth,taper_angle,quadrature_type,Nzs,Nqs,freq))
-    elif geometry=='PtSi': #Taper angle is disabled
-        filename=os.path.join(charge_data_dir,\
-                              '%sCharge_L=%i_SkinDepth=%1.2f_Quad=%s_Nzs=%i_Nqs=%i_freq=%1.4f.pickle'%\
-                              (geometry_title,L,skin_depth,quadrature_type,Nzs,Nqs,freq))
-    else:
-        filename=os.path.join(charge_data_dir,\
-                              '%sCharge_L=%i_SkinDepth=%1.2f_Quad=%s_Nzs=%i_Nqs=%i_freq=%1.4f.pickle'%\
-                              (geometry_title,L,skin_depth,quadrature_type,Nzs,Nqs,freq))
+            
+    filepath=get_charge_data_path(geometry,L,skin_depth,taper_angle,quadrature_type,Nzs,Nqs,freq)
     
-    Logger.write('Writing charge data to file:\n\t"%s"'%filename)
-    file=open(filename,'wb')
+    Logger.write('Writing charge data to file:\n\t"%s"'%filepath)
+    file=open(filepath,'wb')
     pickle.dump(d,file); file.close()
     
     az.reuse_kernel=False

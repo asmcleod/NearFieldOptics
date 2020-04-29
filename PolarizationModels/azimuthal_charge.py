@@ -3,13 +3,13 @@ import numpy
 import pickle
 import time
 from scipy import linalg
-from scipy.special import j0,j1,erf
+from scipy.special import j0,j1,ellipk #2020.03.25 ASM: let's try it from scipy!
 from common import misc
 from common import numerics
 from common.baseclasses import ArrayWithAxes as AWA
 from common.log import Logger
 from matplotlib.pyplot import *
-from mpmath import ellipk
+#from mpmath import ellipk
 from scipy.interpolate import interp1d,griddata
 from scipy.integrate import quad,fixed_quad
 
@@ -130,35 +130,58 @@ def get_radii(zs,L=1000,z0=0,R=1,taper_angle=20,geometry='cone',Rtop=0,bow=0):
 
     return Rs
 
-def self_interaction(z1,z2,R1,R2,ws,freq=0):
-    """Represents the potential influence due to a line charge
-    density a distance *delta_z* away, at which the azimuthally
-    symmetric charge distribution has a radius *R*."""
+def GetCoulKernelQuasiStatic(zs_in,rs_in,zs_out=None,rs_out=None,\
+                             ws=None,verbose=True):
 
-    global result
-    result=numpy.zeros((len(z1),)*2,dtype=numpy.complex)
-    triu_inds=numpy.triu_indices(len(z1))
-    tril_inds=[triu_inds[1],triu_inds[0]] #just transpose indices!
+    if zs_out is None and rs_out is None: symmetric=True
+    else: symmetric=False
+    
+    if zs_out is None: zs_out=zs_in
+    if rs_out is None: rs_out=rs_in
+    N_in=len(zs_in)
+    N_out=len(zs_out)
+    assert len(rs_in)==N_in and len(rs_out)==N_out
+    
+    Zs_in=numpy.resize(zs_in,(1,N_in))
+    if ws is not None: Ws=numpy.reshape(ws,(1,N_in))
+    else: Ws=0
+    Zs_out=numpy.resize(zs_out,(N_out,1))
+    Rs_in=numpy.resize(rs_in,(1,N_in))
+    Rs_out=numpy.resize(rs_out,(N_out,1))
+    
+    NumGrid=-4*Rs_out*Rs_in
+    DenGrid=(Zs_out-Zs_in)**2+(Rs_out-Rs_in)**2+Ws/2
+    
+    if verbose: Logger.write('Evaluating Coulomb Kernel in quasi-static approximation...')
+    t1=time.time()
+    if symmetric:
 
-    global arg
-    dz2=(z1-z2)**2
-    dR2=(R1-R2)**2
+        triu_inds=numpy.triu_indices(len(zs))
+        tril_inds=[triu_inds[1],triu_inds[0]] #just transpose indices!
+        
+        #if ws is not None:
+        #    numpy.fill_diagonal(DenGrid,(ws/2)**2) #Doesn't matter much as long as not too large/small
+    
+        #Select only the unique values (above diagonal)
+        Den=DenGrid[triu_inds]
+        Num=NumGrid[triu_inds]
+        Ks=ellipk(Num/Den)
+        CoulVals=2/np.pi*Ks/np.sqrt(Den)
+        
+        CoulKernel=numpy.zeros((N_out,N_in),dtype=numpy.complex)
+        CoulKernel[triu_inds]=CoulVals
+        CoulKernel[tril_inds]=CoulVals
+        
+    else:
+        KsGrid=ellipk(NumGrid/DenGrid)
+        CoulKernel=2/np.pi*KsGrid/np.sqrt(DenGrid)
+    
+    if verbose: Logger.write('\tTime: %s seconds'%(time.time()-t1))
+    CoulKernel=numpy.matrix(CoulKernel)
+    
+    return CoulKernel
 
-    den=numpy.sqrt(dR2+dz2)
-    numpy.fill_diagonal(den,ws/2)
-    arg=-4*R1*R2/den**2
-
-    if freq!=0:
-        wl=1/numpy.float(freq)
-        phase=numpy.exp(1j*2*numpy.pi*numpy.sqrt(dz2)/wl)
-    else: phase=numpy.zeros(result.shape); phase.fill(1)
-
-    result[triu_inds]=2/numpy.pi*elliptic_function(arg[triu_inds])/den[triu_inds]*phase[triu_inds]
-    result[tril_inds]=result[triu_inds]
-
-    return result
-
-def GetKernels(zs,radii,ws,freq=0):
+def GetKernels(zs,radii,ws,freq=0,zs2=None,radii2=None):
 
     #Some default minimum frequency, so default implementation of
     #frequency-dependent kernels doesn't choke on freq=0
@@ -167,17 +190,19 @@ def GetKernels(zs,radii,ws,freq=0):
 
     #Get independent vars for kernels
     N=len(zs)
+    if zs2 is None: zs2=zs
     zs1=numpy.resize(zs,(N,1))
-    zs2=numpy.resize(zs,(1,N))
+    zs2=numpy.resize(zs2,(1,N))
+    if radii2 is None: radii2=radii
     Rs1=numpy.resize(radii,(N,1))
-    Rs2=numpy.resize(radii,(1,N))
+    Rs2=numpy.resize(radii2,(1,N))
 
     triu_inds=numpy.triu_indices(len(zs))
     tril_inds=[triu_inds[1],triu_inds[0]] #just transpose indices!
 
     global XsGrid,YsGrid,Xs,Ys,dRs1,dRs2
     dzs=(zs1-zs2)
-    numpy.fill_diagonal(dzs,ws/2.) #Doesn't matter much as long as not too large/small
+    numpy.fill_diagonal(dzs,numpy.diag(dzs)+ws/2.) #Doesn't matter much as long as not too large/small
 
     XsGrid=freq**2*(dzs**2+Rs1**2+Rs2**2)
     YsGrid=freq**2*(2*Rs1*Rs2)
@@ -292,7 +317,10 @@ def get_charge_dist(z0=0,N=1000,freq=0,\
     global radii,zs
     global z_axis
     global weights
-    global WUpperTri,A,H,G,RadiativeKernel,phi_ext
+    global WUpperTri,A,H,G,RadiativeKernel,phi_ext,reuse_kernel
+    
+    try: G
+    except: reuse_kernel=False
 
     if not reuse_kernel:
 
@@ -355,69 +383,75 @@ def get_charge_dist(z0=0,N=1000,freq=0,\
         Logger.write('Reusing earlier-computed kernel for self energy in computing charge distribution...')
 
     #Inhomogeneous term - V_ext is produced by a positive charge, producing positive Ez
-    Logger.write('Using incident field profile "%s"...'%V_ext)
-    if V_ext==None:
-        Er,Ez=numpy.zeros(zs.shape),numpy.zeros(zs.shape)
-    elif V_ext=='linear':
-        Er,Ez=numpy.zeros(zs.shape),numpy.zeros(zs.shape)+1
-    elif V_ext=='point':
-        Er,Ez=numpy.zeros(zs.shape),1/numpy.abs(z0+zs)**2
-    elif V_ext=='exponential':
-
-        kappa=R/numpy.float(exp_decay)
-        k=2*numpy.pi*freq*R
-        Q=numpy.sqrt(k**2+kappa**2)
-
-        Ez=j0(Q*radii)*numpy.exp(-kappa*(z0+zs))
-        Er=j1(Q*radii)*numpy.exp(-kappa*(z0+zs))*kappa/Q
-
-
-    elif 'gaussian' in V_ext:
-
-        angle=V_ext[len('gaussian'):]
-        if not angle: angle=90
-        if angle: angle=float(angle)
-        angle*=numpy.pi/180
-
-        k=2*numpy.pi*freq*R
-        q=k*numpy.sin(angle)
-        kz=k*numpy.cos(angle)
-
-        Ez=j0(q*radii)
-        Er=+1j*numpy.sqrt(k**2-q**2)/q*j1(q*radii)
-
-        zpropagation=numpy.exp(-1j*kz*zs)
-        Ez*=zpropagation
-        Er*=zpropagation
-
-        WL=1/numpy.float(freq)
-        sigma=numpy.sqrt(2)*.42*WL
-        envelope=numpy.exp(-(z0+zs)**2/(2*sigma**2))\
-                 /(numpy.sqrt(2*numpy.pi)*sigma)
-        Ez*=envelope
-        Er*=envelope
-
-    elif 'plane_wave' in V_ext:
-
-        angle=V_ext[len('plane_wave'):]
-        if not angle: angle=90
-        if angle: angle=float(angle)
-        angle*=numpy.pi/180
-
-        k=2*numpy.pi*freq*R
-        q=k*numpy.sin(angle)
-        kz=k*numpy.cos(angle)
-
-        Ez=j0(q*radii)
-        Er=+1j*numpy.sqrt(k**2-q**2)/q*j1(q*radii)#-1j*numpy.sqrt(k**2-q**2)/q*j1(q*radii)
-
-        zpropagation=numpy.exp(-1j*kz*zs)
-        Ez*=zpropagation
-        Er*=zpropagation
-
-    dRs=numerics.differentiate(y=radii,x=zs)
-    Edotted=numpy.matrix(dRs*Er+Ez).T
-    phi_ext=-WUpperTri.T*Edotted
+    if isinstance(V_ext,np.ndarray):
+        Logger.write('Using incident potential profile provided by array...')
+        phi_ext=np.matrix(np.array(V_ext).squeeze()).T
+        
+    else:
+        Logger.write('Using incident field profile "%s"...'%V_ext)
+        if V_ext==None:
+            Er,Ez=numpy.zeros(zs.shape),numpy.zeros(zs.shape)
+        elif V_ext=='linear':
+            Er,Ez=numpy.zeros(zs.shape),numpy.zeros(zs.shape)+1
+        elif V_ext=='point':
+            Er,Ez=numpy.zeros(zs.shape),1/numpy.abs(z0+zs)**2
+        elif V_ext=='exponential':
+    
+            kappa=R/numpy.float(exp_decay)
+            k=2*numpy.pi*freq*R
+            Q=numpy.sqrt(k**2+kappa**2)
+    
+            Ez=j0(Q*radii)*numpy.exp(-kappa*(z0+zs))
+            Er=j1(Q*radii)*numpy.exp(-kappa*(z0+zs))*kappa/Q
+    
+    
+        elif 'gaussian' in V_ext:
+    
+            angle=V_ext[len('gaussian'):]
+            if not angle: angle=90
+            if angle: angle=float(angle)
+            angle*=numpy.pi/180
+    
+            k=2*numpy.pi*freq*R
+            q=k*numpy.sin(angle)
+            kz=k*numpy.cos(angle)
+    
+            Ez=j0(q*radii)
+            Er=+1j*numpy.sqrt(k**2-q**2)/q*j1(q*radii)
+    
+            zpropagation=numpy.exp(-1j*kz*zs)
+            Ez=Ez*zpropagation
+            Er=Er*zpropagation
+    
+            WL=1/numpy.float(freq)
+            sigma=numpy.sqrt(2)*.42*WL
+            envelope=numpy.exp(-(z0+zs)**2/(2*sigma**2))\
+                     /(numpy.sqrt(2*numpy.pi)*sigma)
+            Ez=Ez*envelope
+            Er=Er*envelope
+    
+        elif 'plane_wave' in V_ext:
+    
+            angle=V_ext[len('plane_wave'):]
+            if not angle: angle=90
+            if angle: angle=float(angle)
+            angle*=numpy.pi/180
+    
+            k=2*numpy.pi*freq*R
+            q=k*numpy.sin(angle)
+            kz=k*numpy.cos(angle)
+    
+            Ez=j0(q*radii)
+            Er=+1j*numpy.sqrt(k**2-q**2)/q*j1(q*radii)#-1j*numpy.sqrt(k**2-q**2)/q*j1(q*radii)
+    
+            zpropagation=numpy.exp(-1j*kz*zs)
+            Ez=Ez*zpropagation
+            Er=Er*zpropagation
+    
+        dRs=numerics.differentiate(y=radii,x=zs)
+        Edotted=numpy.matrix(dRs*Er+Ez).T
+        phi_ext=-WUpperTri.T*Edotted
+        
     Ivec=numpy.matrix([1]*len(phi_ext)).T
 
     #internal potential is set by total charge

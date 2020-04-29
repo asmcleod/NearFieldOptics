@@ -485,11 +485,27 @@ class TabulatedMaterial(BaseIsotropicMaterial):
         
         BaseIsotropicMaterial.__init__(self)
         
-    def epsilon(self,freq,q=0):
+    def epsilon(self,freq,q=0,**kwargs):
         
         return self.factor*\
-                self._eps_data.interpolate_axis(freq,axis=0)
-
+                self._eps_data.interpolate_axis(freq,axis=0,**kwargs)
+    
+class TabulatedMagneticMaterial(BaseIsotropicMaterial):
+    
+    def __init__(self,eps_data,mu_data,factor=1):
+        
+        self._eps_data=eps_data
+        self._mu_data=mu_data
+        self.factor=factor
+        
+        BaseIsotropicMaterial.__init__(self)
+        
+    def mu(self,freq,q=0,**kwargs):
+        
+        return self.factor*\
+                self._mu_data.interpolate_axis(freq,axis=0,**kwargs)
+    
+    
 class TabulatedMaterialFromFile(TabulatedMaterial):
     
     data_dir=os.path.join(os.path.dirname(__file__),\
@@ -498,13 +514,15 @@ class TabulatedMaterialFromFile(TabulatedMaterial):
     def __init__(self,epsfile,factor=1):
         
         Logger.write('Loading tabulated material data from file "%s"...'%epsfile)
-        epsfile=os.path.join(self.data_dir,epsfile)
+        if not os.path.exists(epsfile):
+            epsfile=os.path.join(self.data_dir,epsfile)
+        assert os.path.exists(epsfile),FileNotFoundError('file "%s" not found'%epsfile)
         file=open(epsfile)
         
         if epsfile.lower().endswith('.pickle'):
             file=open(epsfile,'rb')
             eps_data=pickle.load(file,encoding='bytes')
-        elif epsfile.lower().endswith('.csv'):
+        elif epsfile.lower().endswith('.csv') or epsfile.lower().endswith('.txt'):
             freq,eps1,eps2=misc.extract_array(file, dtype=numpy.float).T
             eps_data=AWA(eps1+1j*eps2,axes=[freq],axis_names=['Frequency [cm^-1]'])
         else: Logger.error('File type not understood for file "%s".'%epsfile)
@@ -512,7 +530,33 @@ class TabulatedMaterialFromFile(TabulatedMaterial):
         file.close()
         
         TabulatedMaterial.__init__(self,eps_data,factor=factor)
-
+        
+class TabulatedMagneticMaterialFromFile(TabulatedMagneticMaterial):
+    
+    data_dir = os.path.join(os.path.dirname(__file__),\
+                            'Tabulated')
+    
+    def __init__(self,epsmufile):
+        
+        Logger.write('Loading tabulated magnetic material data form file "%s"...'%epsmufile)
+        if not os.path.exists(epsmufile):
+            epsmufile=os.path.join(self.data_dir,epsmufile)
+        assert os.path.exists(epsmufile),FileNotFoundError('file "%s" not found'%epsmufile)
+        file=open(epsmufile)
+        
+        if epsmufile.lower().endswith('.pickle'):
+            file=open(epsmufile,'rb')
+            eps_data=pickle.load(file,encoding='bytes')
+        elif epsmufile.lower().endswith('.csv') or epsmufile.lower().endswith('.txt'):
+            freq,eps1,eps2,mu1,mu2=misc.extract_array(file, dtype=numpy.float).T
+            eps_data=AWA(eps1+1j*eps2,axes=[freq],axis_names=['Frequency [cm^-1]'])
+            mu_data = AWA(mu1+1j*mu2,axes = [freq],axis_names = ['Frequency [cm^-1]'])
+        else: Logger.error('File type not understood for file "%s".'%epsmufile)
+        
+        file.close()
+        
+        TabulatedMagneticMaterial.__init__(self,eps_data,mu_data)
+        
 class Surface(object):
     
     def __init__(self,sigma0=0):
@@ -600,7 +644,7 @@ class SingleLayerGraphene(IsotropicSurface):
         
         return ensure_complex(result)
     
-    def conductivity(self,freq):
+    def conductivity(self,freq,q=None):
         "Units of cm/sec for graphene"
         
         zeta_bar=self.zeta_bar(freq)
@@ -815,17 +859,14 @@ class LayeredMedia(object):
                                                         angle=angle,\
                                                         entrance=entrance)
         
-        print('Interface #0')
         ##Get rho at exit##
         below_material=exit
-        print('material (substrate) below interface:',below_material)
         #Get any surface materials at bottom#
         surfaces=[]
         while isinstance(layers[-1],Surface):
             surfaces.append(layers.pop())
             if not len(layers): break
         above_material=layers[-1].get_material()
-        print('material above interface:',above_material)
         #Get rp for this interface#
         if isinstance(above_material,BaseAnisotropicMaterial):
             entrance_kz=above_material.get_extraordinary_kz
@@ -834,7 +875,6 @@ class LayeredMedia(object):
                                         surface=surfaces,\
                                         entrance=above_material,
                                         entrance_kz=entrance_kz,**kwargs)
-        print('Abs rho:',numpy.mean(numpy.abs(rp)))
         rho=rp; self.rps.append(rp)
         
         #See how many bulk media we have#
@@ -843,11 +883,9 @@ class LayeredMedia(object):
         
         ##Iterate over layers from bottom to build up rho##
         for i in range(number_bulk_media):
-            print('Interface #%i'%(i+1))
             
             below_layer=layers.pop(-1)
             below_material=below_layer.get_material()
-            print('material below interface:',below_material)
             #print 'Material below: %s'%below_material.name
             
             #Again collect surface materials at next interface#
@@ -856,7 +894,6 @@ class LayeredMedia(object):
             
             #Get rp for this interface#
             above_material=layers[-1].get_material()
-            print('material above interface:',above_material)
             if isinstance(above_material,BaseAnisotropicMaterial):
                 entrance_kz=above_material.get_extraordinary_kz
             else: entrance_kz=above_material.get_kz
@@ -864,7 +901,6 @@ class LayeredMedia(object):
                                             surface=surfaces,\
                                             entrance=above_material,\
                                             entrance_kz=entrance_kz)
-            print('Abs rp:',numpy.mean(numpy.abs(rp)))
             self.rps.append(rp)
             
             #Make rho#
@@ -876,7 +912,6 @@ class LayeredMedia(object):
             below_thickness=below_layer.get_thickness()
             rho=(rp+rho*numpy.exp(+2*1j*below_kz*below_thickness))/\
                 (1+rp*rho*numpy.exp(+2*1j*below_kz*below_thickness))
-            print('Abs rho:',numpy.mean(numpy.abs(rho)))
                 
         return rho
     
@@ -1260,18 +1295,24 @@ class TabulatedAnisotropicMaterial(BaseAnisotropicMaterial):
         self._ordinary_eps_data=ordinary_eps_data
         self._extraordinary_eps_data=extraordinary_eps_data
         self.factor=factor
+        self.bounds_error=False
+        self.extrapolate=True
         
         BaseAnisotropicMaterial.__init__(self)
         
-    def ordinary_epsilon(self,freq,q=0):
+    def ordinary_epsilon(self,freq,q=0,**kwargs):
         
         return self.factor*\
-                self._ordinary_eps_data.interpolate_axis(freq,axis=0)
+                self._ordinary_eps_data.interpolate_axis(freq,axis=0,
+                                                         bounds_error=self.bounds_error,
+                                                         extrapolate=self.extrapolate)
         
-    def extraordinary_epsilon(self,freq,q=0):
+    def extraordinary_epsilon(self,freq,q=0,**kwargs):
         
         return self.factor*\
-                self._extraordinary_eps_data.interpolate_axis(freq,axis=0)
+                self._extraordinary_eps_data.interpolate_axis(freq,axis=0,
+                                                              bounds_error=self.bounds_error,
+                                                              extrapolate=self.extrapolate)
 
 class TabulatedAnisotropicMaterialFromFile(TabulatedAnisotropicMaterial):
     
@@ -1280,7 +1321,7 @@ class TabulatedAnisotropicMaterialFromFile(TabulatedAnisotropicMaterial):
     
     def __init__(self,epsfile,factor=1):
         
-        if not epsfile.startswith(os.path.sep):
+        if not os.path.exists(epsfile):
             epsfile=os.path.join(self.data_dir,epsfile)
         Logger.write('Loading tabulated material data from file "%s"...'%epsfile)
         file=open(epsfile)
