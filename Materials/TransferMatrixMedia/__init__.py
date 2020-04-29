@@ -1,38 +1,12 @@
+import numpy; np=numpy
+from common import misc
+from NearFieldOptics.Materials import Air,LayeredMedia
 from NearFieldOptics.Materials.material_types import *
+from NearFieldOptics.Materials.material_types import _prepare_freq_and_q_holder_
 from NearFieldOptics.Materials.TransferMatrixMedia import MatrixBuilder as mb
 from NearFieldOptics.Materials.TransferMatrixMedia import Calculator
 # import MatrixBuilder as mb
 # import Calculator
-
-#Same private helper method as the one in NearFieldOptics.Material.material_types.
-def _prepare_freq_and_q_holder_(freq,q,\
-                                angle=None,\
-                                entrance=None):
-    
-    if angle!=None:
-        if not entrance: entrance=Air
-        angle_rad=angle/180.*pi
-        k=safe_sqrt(entrance.optical_constants(freq))*freq
-        q=numpy.real(k*numpy.sin(angle_rad))
-    else:
-        ##Prepare AWA if there are axes in *freq* and *q*##
-        freq,q=numerics.broadcast_items(freq,q)
-        
-    axes=[]; axis_names=[]
-    if isinstance(freq,numpy.ndarray):
-        freqaxis=freq.squeeze()
-        if not freqaxis.ndim: freqaxis.resize((1,))
-        axes.append(freqaxis); axis_names.append('Frequency (cm$^{-1}$)')
-    if isinstance(q,numpy.ndarray) and angle is None:
-        qaxis=q.squeeze()
-        if not qaxis.ndim: qaxis.resize((1,))
-        axes.append(qaxis); axis_names.append('q-vector (cm$^{-1}$)')
-    if axes:
-        shape=[len(axis) for axis in axes]
-        holder=AWA(numpy.zeros(shape),axes=axes,axis_names=axis_names)
-    else: holder=0
-    
-    return freq,q,ensure_complex(holder)
 
 class LayeredMediaTM(LayeredMedia):
     

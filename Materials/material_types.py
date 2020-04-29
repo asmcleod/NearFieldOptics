@@ -8,6 +8,7 @@ import scipy
 import cmath
 import copy
 import pickle
+import numbers
 from common.log import Logger
 from common import misc
 from common.baseclasses import ArrayWithAxes as AWA
@@ -52,14 +53,16 @@ def _prepare_freq_and_q_holder_(freq,q,\
                                 angle=None,\
                                 entrance=None):
     
+    #Convert angle to q
     if angle!=None:
+        assert isinstance(angle,numbers.Number),'`angle` must be a single number.'
         if not entrance: entrance=Air
         angle_rad=angle/180.*pi
         k=safe_sqrt(entrance.optical_constants(freq))*freq
         q=numpy.real(k*numpy.sin(angle_rad))
-    else:
-        ##Prepare AWA if there are axes in *freq* and *q*##
-        freq,q=numerics.broadcast_items(freq,q)
+        
+    ##Prepare AWA if there are axes in *freq* and *q*##
+    freq,q=numerics.broadcast_items(freq,q)
         
     axes=[]; axis_names=[]
     if isinstance(freq,numpy.ndarray):
