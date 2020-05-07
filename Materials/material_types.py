@@ -8,6 +8,7 @@ import scipy
 import cmath
 import copy
 import pickle
+import numbers
 from common.log import Logger
 from common import misc
 from common.baseclasses import ArrayWithAxes as AWA
@@ -52,14 +53,16 @@ def _prepare_freq_and_q_holder_(freq,q,\
                                 angle=None,\
                                 entrance=None):
     
+    #Convert angle to q
     if angle!=None:
+        assert isinstance(angle,numbers.Number),'`angle` must be a single number.'
         if not entrance: entrance=Air
         angle_rad=angle/180.*pi
         k=safe_sqrt(entrance.optical_constants(freq))*freq
         q=numpy.real(k*numpy.sin(angle_rad))
-    else:
-        ##Prepare AWA if there are axes in *freq* and *q*##
-        freq,q=numerics.broadcast_items(freq,q)
+        
+    ##Prepare AWA if there are axes in *freq* and *q*##
+    freq,q=numerics.broadcast_items(freq,q)
         
     axes=[]; axis_names=[]
     if isinstance(freq,numpy.ndarray):
@@ -1083,9 +1086,7 @@ class BaseAnisotropicMaterial(Material):
         
         omega=2*pi*freq
         
-        ke=safe_sqrt(eps2_o*omega**2-eps2_o/eps2_e*q**2)
-        
-        return ke
+        kz=safe_sqrt(eps2_o*omega**2-eps2_o/eps2_e*q**2)
         
         return ensure_complex(kz)
     
@@ -1329,6 +1330,8 @@ class TabulatedAnisotropicMaterialFromFile(TabulatedAnisotropicMaterial):
         if epsfile.lower().endswith('.pickle'):
             file=open(epsfile,'rb')
             eps_data=pickle.load(file,encoding='bytes')
+            ordinary_eps_data=eps_data['ordinary']
+            extraordinary_eps_data=eps_data['extraordinary']
         elif epsfile.lower().endswith('.csv'):
             freq,ordinary_eps1,ordinary_eps2,\
                 extraordinary_eps1,extraordinary_eps2=misc.extract_array(file, dtype=numpy.float).T
