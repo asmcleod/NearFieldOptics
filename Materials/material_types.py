@@ -1086,9 +1086,7 @@ class BaseAnisotropicMaterial(Material):
         
         omega=2*pi*freq
         
-        ke=safe_sqrt(eps2_o*omega**2-eps2_o/eps2_e*q**2)
-        
-        return ke
+        kz=safe_sqrt(eps2_o*omega**2-eps2_o/eps2_e*q**2)
         
         return ensure_complex(kz)
     
@@ -1332,6 +1330,8 @@ class TabulatedAnisotropicMaterialFromFile(TabulatedAnisotropicMaterial):
         if epsfile.lower().endswith('.pickle'):
             file=open(epsfile,'rb')
             eps_data=pickle.load(file,encoding='bytes')
+            ordinary_eps_data=eps_data['ordinary']
+            extraordinary_eps_data=eps_data['extraordinary']
         elif epsfile.lower().endswith('.csv'):
             freq,ordinary_eps1,ordinary_eps2,\
                 extraordinary_eps1,extraordinary_eps2=misc.extract_array(file, dtype=numpy.float).T

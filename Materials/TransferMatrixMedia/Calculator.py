@@ -846,7 +846,8 @@ class Calculator():
         a = self.get_analytical_H_field()[0]
         b = self.get_analytical_H_field()[1]
         
-        self.analyticalKernel = -sympy.I*c*k_n/(omega*epsilon_n*q)*(b-a)
+        #2020.05.07 ASM:  Removed an overall minus sign which conversed the correct free-space answer for air/air stack
+        self.analyticalKernel = sympy.I*c*k_n/(omega*epsilon_n*q)*(b-a)
     
     def get_analytical_kernel(self): 
         """Get analytical Coulomb kernel from transfer matrix method.
