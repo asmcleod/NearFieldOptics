@@ -1277,7 +1277,8 @@ class _LightningRodModel_(TipModel):
             
         return rad
     
-    def get_momentum_distribution(self,psi=None):
+    def get_Ez_vs_momentum(self,psi=None,z=0):
+        """z in units of a"""
         
         qxs=self.qxs
         wqxs=self.wqxs
@@ -1287,7 +1288,8 @@ class _LightningRodModel_(TipModel):
         LambdaMat=self.LambdaMatrix(qxs)
         WMat=numpy.matrix(numpy.diag(wqxs))
         QMat=numpy.matrix(numpy.diag(qxs))
-        field_contributions=numpy.array(QMat*LambdaMat*WMat*psi_qxs_vec).squeeze()
+        Gz=numpy.matrix(numpy.diag(numpy.exp(-z*qxs)))
+        field_contributions=numpy.array(Gz*QMat*LambdaMat*WMat*psi_qxs_vec).squeeze()
         
         return AWA(field_contributions,axes=[qxs],axis_names=['q'])
         
@@ -1377,7 +1379,7 @@ class _LightningRodModel_(TipModel):
         
         #Prepare the model#
         self.prepare_model(zs=zs,zmin=zmin,Nzs=Nzs,Nqs=Nqs,amplitude=amplitude,a=a,kwargs=kwargs)
-                
+        
         #Compute necessary matrices on our q-quadrature grid
         self.Lambda0Vecx=self.Lambda0Vector(self.qxs)
         self.LambdaMatx=self.LambdaMatrix(self.qxs)
@@ -1388,6 +1390,7 @@ class _LightningRodModel_(TipModel):
         
         #Compute psi v. (freq, q) at each z
         psis=[]
+        Ezs_vs_q=[]
         for i,freq in enumerate(freqs):
             progress=i/float(len(freqs))*100.
             if verbose: Logger.write('\tPROGRESS: %i%% - Computing state of the tip charge v. '%progress+\
@@ -1398,21 +1401,29 @@ class _LightningRodModel_(TipModel):
                 Lambda0Vecx=self.Lambda0Vecx+ambient_rp.cslice[freq]*self.Lambda0VectorRefl(self.qxs)
             else: Lambda0Vecx=self.Lambda0Vecx
             
-            #Get distribution of charge w.r.t. original q-values
+            #Get distribution of charge and field w.r.t. original q-values
             rp_at_freq=self.evaluate_rp(freq,rp,self.qxs,**kwargs)
+            
             psis_at_freq=[self.compute_state(Lambda0Vecx,self.LambdaMatx,\
                                             z,freq,rp=rp_at_freq) \
                                 for z in self.zs[::-1]][::-1]
             psis.append(psis_at_freq)
             
+            Ez_vs_q_at_freq=[self.get_Ez_vs_momentum(psi,z) for psi,z in \
+                                zip(psis_at_freq,self.zs)]
+            Ezs_vs_q.append(Ez_vs_q_at_freq)
+        
         #Make into master array
         a=self.geometric_params['a']
         zs_nm=self.zs*a
         psis=Spectrum(psis,axes=[freqs,zs_nm,self.qxs],\
                       axis_names=['Frequency','Z [nm]','q [1/a]'],axis=None) #don't tell to FFT along any new axes!
-        
+        Ezs_vs_q=Spectrum(Ezs_vs_q,axes=[freqs,zs_nm,self.qxs],\
+                             axis_names=['Frequency','Z [nm]','q [1/a]'],axis=None)
+            
         #Permute the axes to make zs first dimension (for convenience)
         psis=psis.transpose((1,0,2)) #z, freqs, qs
+        Ezs_vs_q=Ezs_vs_q.transpose((1,0,2)) #z, freqs, qs
         
         #Get signal values froms states
         shape=(1,1,len(self.qxs)) #add z and fequency axis
@@ -1439,6 +1450,7 @@ class _LightningRodModel_(TipModel):
         d={}
         d['psi']=psis.squeeze()
         d['signals']=signals.squeeze()
+        d['Ez_vs_q']=Ezs_vs_q.squeeze()
         
         if demodulate:
             
@@ -1453,6 +1465,13 @@ class _LightningRodModel_(TipModel):
                 d['state_vs_time']=state_vs_time
                 d.update(dict([(('state_%i'%harmonic),demodulated_states.cslice[harmonic]) \
                                for harmonic in harmonics]))
+                
+                Ez_vs_q=Ezs_vs_q.squeeze()
+                Ez_vs_q_vs_time,demodulated_Ez_vs_q=self.demodulate(Ez_vs_q,Nts=Nts,harmonics=harmonics)
+                d['Ez_vs_q_vs_time']=Ez_vs_q_vs_time
+                d.update(dict([(('Ez_vs_q_%i'%harmonic),demodulated_Ez_vs_q.cslice[harmonic]) \
+                               for harmonic in harmonics]))
+                    
                 signals2_vs_time,demodulated_signals2=self.demodulate(signals2.squeeze(),Nts=Nts,harmonics=harmonics)
                 d.update(dict([(('signal2_%i'%harmonic),demodulated_signals2.cslice[harmonic]) \
                                for harmonic in harmonics]))
