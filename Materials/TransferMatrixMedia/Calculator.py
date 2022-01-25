@@ -247,7 +247,7 @@ class Calculator():
         layerDictionary = self.transferMatrix.layerDictionary
         
         subs = {}
-        subs['c'] = 3e10
+        subs['c'] = 29979245368 #speed of light in cm/s
         subs['omega'] = 2*np.pi*freq
         
         #for first boundary
@@ -329,7 +329,7 @@ class Calculator():
         layerDictionary = self.transferMatrix.layerDictionary
         
         subs = {}
-        subs['c'] = 3e10
+        subs['c'] = 29979245368 #speed of light in cm/s
         subs['omega'] = 2*np.pi*freq
         
         #for first boundary

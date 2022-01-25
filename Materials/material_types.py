@@ -58,11 +58,12 @@ def _prepare_freq_and_q_holder_(freq,q,\
         assert isinstance(angle,numbers.Number),'`angle` must be a single number.'
         if not entrance: entrance=Air
         angle_rad=angle/180.*pi
-        k=safe_sqrt(entrance.optical_constants(freq))*freq
+        k=2*numpy.pi*safe_sqrt(entrance.optical_constants(freq))*freq #@ASM 2020.10.06: correction, 2*pi added
         q=numpy.real(k*numpy.sin(angle_rad))
-        
-    ##Prepare AWA if there are axes in *freq* and *q*##
-    freq,q=numerics.broadcast_items(freq,q)
+    
+    else:
+        ##Prepare AWA if there are axes in *freq* and *q*##
+        freq,q=numerics.broadcast_items(freq,q)
         
     axes=[]; axis_names=[]
     if isinstance(freq,numpy.ndarray):
@@ -481,40 +482,45 @@ class DopedSilicon(Semiconductor):
 
 class TabulatedMaterial(BaseIsotropicMaterial):
     
-    def __init__(self,eps_data,factor=1):
+    def __init__(self,eps_data,factor=1,**eps_kwargs):
         
         self._eps_data=eps_data
         self.factor=factor
+        self.eps_kwargs=eps_kwargs
         
         BaseIsotropicMaterial.__init__(self)
         
-    def epsilon(self,freq,q=0,**kwargs):
+    def epsilon(self,freq,q=0):
+        
+        eps_kwargs=self.eps_kwargs
         
         return self.factor*\
-                self._eps_data.interpolate_axis(freq,axis=0,**kwargs)
+                self._eps_data.interpolate_axis(freq,axis=0,**eps_kwargs)
     
 class TabulatedMagneticMaterial(BaseIsotropicMaterial):
     
-    def __init__(self,eps_data,mu_data,factor=1):
+    def __init__(self,eps_data,mu_data,factor=1,**eps_kwargs):
         
         self._eps_data=eps_data
         self._mu_data=mu_data
         self.factor=factor
+        self.eps_kwargs=eps_kwargs
         
         BaseIsotropicMaterial.__init__(self)
         
-    def mu(self,freq,q=0,**kwargs):
+    def mu(self,freq,q=0):
+        
+        eps_kwargs=self.eps_kwargs
         
         return self.factor*\
-                self._mu_data.interpolate_axis(freq,axis=0,**kwargs)
-    
+                self._mu_data.interpolate_axis(freq,axis=0,**eps_kwargs)
     
 class TabulatedMaterialFromFile(TabulatedMaterial):
     
     data_dir=os.path.join(os.path.dirname(__file__),\
                           'Tabulated')
     
-    def __init__(self,epsfile,factor=1):
+    def __init__(self,epsfile,factor=1,**eps_kwargs):
         
         Logger.write('Loading tabulated material data from file "%s"...'%epsfile)
         if not os.path.exists(epsfile):
@@ -532,7 +538,7 @@ class TabulatedMaterialFromFile(TabulatedMaterial):
         
         file.close()
         
-        TabulatedMaterial.__init__(self,eps_data,factor=factor)
+        TabulatedMaterial.__init__(self,eps_data,factor=factor,**eps_kwargs)
         
 class TabulatedMagneticMaterialFromFile(TabulatedMagneticMaterial):
     
@@ -619,7 +625,7 @@ class TabulatedSurfaceFromFile(TabulatedSurface):
         file=open(conductivity_file)
         
         if conductivity_file.lower().endswith('.pickle'):
-            file=open(epsfile,'rb')
+            file=open(conductivity_file,'rb')
             conductivity_data=pickle.load(file,encoding='bytes')
         elif conductivity_file.lower().endswith('.csv'):
             freq,sigma1,sigma2=misc.extract_array(file, dtype=numpy.float).T
@@ -671,7 +677,6 @@ class TopologicalInsulatorSurface(SingleLayerGraphene):
         
         #Return half graphene conductivity - one dirac cone per unit cell in density of states - graphene has 2
         return 1/4.*SingleLayerGraphene.conductivity(self,freqs)
-
 
 
 class Layer(object):
@@ -1291,29 +1296,25 @@ class AnisotropicMaterial(BaseAnisotropicMaterial,IsotropicMaterial):
 
 class TabulatedAnisotropicMaterial(BaseAnisotropicMaterial):
     
-    def __init__(self,ordinary_eps_data,extraordinary_eps_data,factor=1):
+    def __init__(self,ordinary_eps_data,extraordinary_eps_data,factor=1,\
+                 **epskwargs):
         
         self._ordinary_eps_data=ordinary_eps_data
         self._extraordinary_eps_data=extraordinary_eps_data
         self.factor=factor
-        self.bounds_error=False
-        self.extrapolate=True
+        self.epskwargs=epskwargs
         
         BaseAnisotropicMaterial.__init__(self)
         
     def ordinary_epsilon(self,freq,q=0,**kwargs):
         
         return self.factor*\
-                self._ordinary_eps_data.interpolate_axis(freq,axis=0,
-                                                         bounds_error=self.bounds_error,
-                                                         extrapolate=self.extrapolate)
+                self._ordinary_eps_data.interpolate_axis(freq,axis=0,**self.epskwargs)
         
     def extraordinary_epsilon(self,freq,q=0,**kwargs):
         
         return self.factor*\
-                self._extraordinary_eps_data.interpolate_axis(freq,axis=0,
-                                                              bounds_error=self.bounds_error,
-                                                              extrapolate=self.extrapolate)
+                self._extraordinary_eps_data.interpolate_axis(freq,axis=0,**self.epskwargs)
 
 class TabulatedAnisotropicMaterialFromFile(TabulatedAnisotropicMaterial):
     

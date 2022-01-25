@@ -967,6 +967,7 @@ class _LightningRodModel_(TipModel):
                                   '"%s"'%filepath)
         from common.misc import unpickle_legacy
         charge_data=unpickle_legacy(filepath)
+        self.load_params['charge_data_file_path']=filepath #@ASM 2020.09.03: added for diagnostics
         
         self.qs,self.wqs=charge_data['quadrature'] #qs, ws
         self.charges=charge_data['charges'] #axes s, z x q

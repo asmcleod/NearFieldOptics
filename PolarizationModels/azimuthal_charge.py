@@ -236,7 +236,7 @@ def GetKernels(zs,radii,ws,freq=0,zs2=None,radii2=None):
         TransFaradKernel[triu_inds]=TransFaradVals
         TransFaradKernel[tril_inds]=TransFaradVals
         TransFaradKernel*=dRs1*dRs2
-        geom_factor=1#/numpy.sqrt((1+dRs1**2)*(1+dRs2**2))
+        geom_factor=1#/numpy.sqrt((1+dRs1**2)*(1+dRs2**2)) #@ASM 2020.09.03: Why is this commented out??
         FaradKernel=geom_factor*(CoulKernel\
                                  +TransFaradKernel)
         Logger.write('\tTime: %s seconds'%(time.time()-t1))
