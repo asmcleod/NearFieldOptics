@@ -60,7 +60,8 @@ Au=IsotropicMaterial(eps_infinity=1,drude_params=(plasma_f,damping_f))
 #---Bi2Se3: Bulk tabulated
 ##########################
 #
-Bi2Se3_Bulk=TabulatedMaterialFromFile('Bi2Se3_epsilon.pickle')
+try: Bi2Se3_Bulk=TabulatedMaterialFromFile('Bi2Se3_epsilon.pickle')
+except: print('Failed to load pickle')
 #Bi2Se3_15QL=TabulatedMaterialFromFile('Bi2Se3_15QL_epsilon.pickle')
 #Bi2Se3s={6:Bi2Se3_Bulk,\
 #         15:Bi2Se3_Bulk,\
@@ -232,7 +233,8 @@ eps_lps=[[(Amp*w_TO**2,w_TO,g) for w_TO,Amp,g in zip(TOs_a,Amps_a,numpy.array(gs
 LiFePO4_calc=AnisotropicMaterial2(eps_infinity=eps_inf,\
                                   eps_lps=eps_lps)
 
-PMMA=TabulatedMaterialFromFile('PMMA_epsilon.pickle')
+try: PMMA=TabulatedMaterialFromFile('PMMA_epsilon.pickle')
+except: print('Failed to load pickle')
 
 #################
 #---PZT (Michael)
@@ -398,7 +400,8 @@ SiO2_Fei=IsotropicMaterial(eps_infinity=1.9259,\
 #---SiO2: 300nm Greg
 ####################
 
-SiO2_300nmFei=TabulatedMaterialFromFile('sio2_300nm_extracted_epsilon_cone_A=2a.pickle')
+try: SiO2_300nmFei=TabulatedMaterialFromFile('sio2_300nm_extracted_epsilon_cone_A=2a.pickle')
+except: print('Failed to load pickle')
 
 ########################
 #---SiO2: Amorphous Bulk
@@ -515,7 +518,7 @@ try:
     BSTS_Surface_bottom=TopologicalInsulatorSurface(chemical_potential=2400,gamma=30)
     BSTS_35nm=LayeredMedia(BSTS_Surface_top,(BSTS_35nm_Bulk,35e-7),BSTS_Surface_bottom,exit=Si)
     BSTS_Bulk=LayeredMedia(BSTS_Surface_top,exit=BSTS_35nm_Bulk)
-except IOError:
+except:
     Logger.exception('Material data not found.',level='warning')
     
     
