@@ -58,11 +58,11 @@ def _prepare_freq_and_q_holder_(freq,q,\
         assert isinstance(angle,numbers.Number),'`angle` must be a single number.'
         if not entrance: entrance=Air
         angle_rad=angle/180.*pi
-        k=safe_sqrt(entrance.optical_constants(freq))*freq
+        k=2*numpy.pi*safe_sqrt(entrance.optical_constants(freq))*freq
         q=numpy.real(k*numpy.sin(angle_rad))
-        
-    ##Prepare AWA if there are axes in *freq* and *q*##
-    freq,q=numerics.broadcast_items(freq,q)
+    else:
+        ##Prepare AWA if there are axes in *freq* and *q*##
+        freq,q=numerics.broadcast_items(freq,q)
         
     axes=[]; axis_names=[]
     if isinstance(freq,numpy.ndarray):
@@ -208,7 +208,7 @@ class BaseIsotropicMaterial(Material):
         if entrance_kz is None: entrance_kz=entrance.get_kz
         
         ##Get holder for data, and expanded freq & q##
-        freq,q,rp=_prepare_freq_and_q_holder_(freq,q,\
+        freq,q,rs=_prepare_freq_and_q_holder_(freq,q,\
                                               angle=angle,\
                                               entrance=entrance)
         
@@ -225,10 +225,10 @@ class BaseIsotropicMaterial(Material):
             surf=4*pi*kz1*kz2*sigma/(c*omega)
         else: surf=0
         
-        rp+=(kz1-kz2+surf)/\
+        rs+=(kz1-kz2+surf)/\
             (kz1+kz2+surf)
                
-        return ensure_complex(rp)
+        return ensure_complex(rs)
 
 Air=BaseIsotropicMaterial(eps_infinity=1)
 Air.name='Air'

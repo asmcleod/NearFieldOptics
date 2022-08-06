@@ -537,22 +537,24 @@ class _SSEQModel_(TipModel):
             cls.qs=qs
             
             cls.s_grid,cls.q_grid=broadcast_items(qs,qs) #s is row vector, q is column vector
-            cls.lambda0_vec=numpy.matrix(cls.Lambda_q_s(s=qs,q=0)).T
-            cls.W=numpy.matrix(numpy.diag(ws))
-            cls.I=numpy.matrix(numpy.eye(len(qs)))
+            cls.lambda0_vec=cls.Lambda_q_s(s=qs,q=0).T
+            cls.W=numpy.diag(ws)
+            cls.I=numpy.eye(len(qs))
             
         #Compute all matrix elements that are different each time
         ss=qs
-        G=numpy.matrix(cls.GetGMatrixElements(freq=freq,nz=nz,rp=rp,\
+        G=cls.GetGMatrixElements(freq=freq,nz=nz,rp=rp,\
                                               s=cls.s_grid,q=cls.q_grid,\
-                                              recompute=recompute))
+                                              recompute=recompute)
         cls.G=G
         cls.rp=rp
         cls.nz=nz
         cls.freq=freq
         
         #Invert total matrix
-        lambda_s_vec=numpy.array((cls.I-G*cls.W).getI()*cls.lambda0_vec).squeeze()
+        lambda_s_vec=numpy.array(
+                                 numpy.linalg.inv(cls.I-G @ cls.W)
+                                @ cls.lambda0_vec).squeeze()
         cls.lambda_s_vec=lambda_s_vec
         
         pre_part=(rp*ss**(1+cls.response_power)\
@@ -1080,13 +1082,13 @@ class _LightningRodModel_(TipModel):
         
         Lambda0=self.Lambda0.interpolate_axis(qxs,axis=0,extrapolate=True,bounds_error=False)
         
-        return numpy.matrix(Lambda0).T
+        return Lambda0.T
     
     def Lambda0VectorRefl(self,qxs):
         
         Lambda0Refl=self.Lambda0Refl.interpolate_axis(qxs,axis=0,extrapolate=True,bounds_error=False)
         
-        return numpy.matrix(Lambda0Refl).T
+        return Lambda0Ref.T
     
     def LambdaMatrix(self,qxs):
         
@@ -1094,7 +1096,7 @@ class _LightningRodModel_(TipModel):
         Lambda=self.Lambda.interpolate_axis(qxs,axis=0,kind='linear',bounds_error=False)\
                          .interpolate_axis(qxs,axis=1,kind='linear',bounds_error=False)
                          
-        return numpy.matrix(Lambda)
+        return Lambda
         
     
     def evaluate_rp(self,freq,rp,qxs,**rpkwargs):
@@ -1133,29 +1135,29 @@ class _LightningRodModel_(TipModel):
         
         if isinstance(rp,numpy.ndarray) and rp.ndim is 2:
             #Reflection matrix integral operator - it's not responsible for including its own weights (how would it know?)
-            R=numpy.matrix(rp)
+            R=rp
             #Propagator
-            P=numpy.matrix(numpy.diag(numpy.exp(-self.qxs*z)))
+            P=numpy.diag(numpy.exp(-self.qxs*z))
             #Distribution of momenta
-            D=numpy.matrix(numpy.diag(self.qxs))
+            D=numpy.diag(self.qxs)
             #If R is diagonal, then everything will be diagonal and will mutually commute
-            W=numpy.matrix(numpy.diag(self.wqxs))
+            W=numpy.diag(self.wqxs)
             
-            return -D*P*W*R*P #note negative sign, to maintain typical notion of G in scattering problem
+            return -D @ P @ W @ R @ P #note negative sign, to maintain typical notion of G in scattering problem
         
         else:
             pref=self.qxs
             #pref=(self.qxs**2+knorm**2)**(3/2.)/self.qxs**2 #; print 'Full calculation!' #Works for SiO2, less so for SiC
-            return -numpy.matrix(numpy.diag(pref\
-                                            *numpy.exp(-2*self.qxs*z)\
-                                            *rp))
+            return -numpy.diag(pref\
+                               *numpy.exp(-2*self.qxs*z)\
+                               *rp)
         
     
     def compute_state(self,Lambda0Vecx,LambdaMatx,\
                           z,freq,rp):
         
-        I=numpy.matrix(numpy.eye(len(Lambda0Vecx)))
-        WMatx=numpy.matrix(numpy.diag(self.wqxs))
+        I=numpy.eye(len(Lambda0Vecx))
+        WMatx=numpy.diag(self.wqxs)
         GMatx=self.GMatrix(z,freq,rp)
         
         #Lambda stuff should already be global, passed down from above
@@ -1163,9 +1165,9 @@ class _LightningRodModel_(TipModel):
         self.GMatx=GMatx
         
         #Compute state psi along xWrap q-coordinates
-        kernelx=LambdaMatx*WMatx*GMatx
+        kernelx=LambdaMatx @ WMatx @ GMatx
         soln=solve((I-kernelx),Lambda0Vecx)
-        psi_qxs=numpy.array(GMatx*soln).squeeze()
+        psi_qxs=numpy.array(GMatx @ soln).squeeze()
         psi_qxs=AWA(psi_qxs,axes=[self.qxs],axis_names=['s'])
         self.z=z
         self.freq=freq
@@ -1283,11 +1285,11 @@ class _LightningRodModel_(TipModel):
         wqxs=self.wqxs
         
         if psi is None: psi=self.psi
-        psi_qxs_vec=numpy.matrix(psi).T
+        psi_qxs_vec=psi.T
         LambdaMat=self.LambdaMatrix(qxs)
-        WMat=numpy.matrix(numpy.diag(wqxs))
-        QMat=numpy.matrix(numpy.diag(qxs))
-        field_contributions=numpy.array(QMat*LambdaMat*WMat*psi_qxs_vec).squeeze()
+        WMat=numpy.diag(wqxs)
+        QMat=numpy.diag(qxs)
+        field_contributions=numpy.array(QMat @ LambdaMat @ WMat @ psi_qxs_vec).squeeze()
         
         return AWA(field_contributions,axes=[qxs],axis_names=['q'])
         
@@ -1298,6 +1300,7 @@ class _LightningRodModel_(TipModel):
         from NearFieldOptics import Materials as mat
         if isinstance(material,mat.Material): eps2=material.epsilon(freq)
         elif isinstance(material,mat.LayeredMedia): eps2=material.get_exit().epsilon(freq)
+        else: assert isinstance(material,(mat.Material,mat.LayeredMedia))
         rp=material.reflection_p
         
         d=self.z
@@ -1310,13 +1313,13 @@ class _LightningRodModel_(TipModel):
         qxs=self.qxs
         wqxs=self.wqxs
         
-        psi_qxs_vec=numpy.matrix(self.psi).T
+        psi_qxs_vec=self.psi.T
         LambdaMat=self.LambdaMatrix(qxs)
         Lambda0Vec=self.Lambda0Vector(qxs)
-        WMat=numpy.matrix(numpy.diag(wqxs))
-        QMat=numpy.matrix(numpy.diag(qxs))
+        WMat=numpy.diag(wqxs)
+        QMat=numpy.diag(qxs)
         #field_contributions=qxs**2*numpy.exp(-qxs)
-        field_contributions=numpy.array(QMat*(Lambda0Vec+LambdaMat*WMat*psi_qxs_vec)).squeeze()
+        field_contributions=numpy.array(QMat @ (Lambda0Vec+LambdaMat @ WMat @ psi_qxs_vec)).squeeze()
         
         #Add in homogeneous field contribution
         self.field_contributions=AWA(field_contributions,axes=[qxs],axis_names=['q'])
@@ -1470,13 +1473,13 @@ class _LightningRodModel2_(_LightningRodModel_):
         
         Lambda0=self.Lambda0.interpolate_axis(qxs,axis=0,extrapolate=True)
         
-        return numpy.matrix(Lambda0).T
+        return Lambda0.T
     
     def Lambda0VectorRefl(self,qxs):
         
         Lambda0Refl=self.Lambda0Refl.interpolate_axis(qxs,axis=0,extrapolate=True)
         
-        return numpy.matrix(Lambda0Refl).T
+        return Lambda0Refl.T
     
     def LambdaMatrix(self,qxs):
         
@@ -1484,7 +1487,7 @@ class _LightningRodModel2_(_LightningRodModel_):
         Lambda=self.Lambda.interpolate_axis(qxs,axis=0,kind='linear')\
                          .interpolate_axis(qxs,axis=1,kind='linear')
                          
-        return numpy.matrix(Lambda)
+        return Lambda
         
     
     def evaluate_rp(self,freq,rp,qxs,**rpkwargs):
@@ -1523,22 +1526,22 @@ class _LightningRodModel2_(_LightningRodModel_):
         
         if isinstance(rp,numpy.ndarray) and rp.ndim is 2:
             #Reflection matrix integral operator - it's not responsible for including its own weights (how would it know?)
-            R=numpy.matrix(rp)
+            R=rp
             #Propagator
-            P=numpy.matrix(numpy.diag(numpy.exp(-self.qxs*z)))
+            P=numpy.diag(numpy.exp(-self.qxs*z))
             #Distribution of momenta
-            D=numpy.matrix(numpy.diag(self.qxs))
+            D=numpy.diag(self.qxs)
             #If R is diagonal, then everything will be diagonal and will mutually commute
-            W=numpy.matrix(numpy.diag(self.wqxs))
+            W=numpy.diag(self.wqxs)
             
-            return -D*P*W*R*P #note negative sign, to maintain typical notion of G in scattering problem
+            return -D @ P @ W @ R @ P #note negative sign, to maintain typical notion of G in scattering problem
         
         else:
             pref=self.qxs
             #pref=(self.qxs**2+knorm**2)**(3/2.)/self.qxs**2 #; print 'Full calculation!' #Works for SiO2, less so for SiC
-            return -numpy.matrix(numpy.diag(pref\
-                                            *numpy.exp(-2*self.qxs*z)\
-                                            *rp))
+            return -numpy.diag(pref\
+                               *numpy.exp(-2*self.qxs*z)\
+                               *rp)
         
     def get_signal(self,freqs,rp,ambient_rp=None,zs=None,Nzs=20,zmin=1e-1,amplitude=80,\
                    a=None,interpolation=None,\
@@ -1882,7 +1885,7 @@ def RadPerChargeRingGenerator(zs,Rs,freq,wzs=None):
     if wzs is None:
         wzs=numpy.diff(zs).tolist()
         wzs=numpy.array(wzs+[wzs[-1]])
-    WLowerTri=numpy.matrix([wzs]*N) #weights run along columns
+    WLowerTri=[wzs]*N #weights run along columns
     WLowerTri[numpy.triu_indices(N,-1)]=0 #make upper triangle zero above diagonal
     numpy.fill_diagonal(WLowerTri,.5*wzs) #half-weights on diagonal
     
@@ -1901,8 +1904,8 @@ def RadPerChargeRingGenerator(zs,Rs,freq,wzs=None):
         zphases=numpy.exp(-1j*znorms*numpy.cos(theta))
         
         #sin(theta) for solid angle weight
-        E_per_current_ring=numpy.matrix((nzs*zcurrentlobe+nrs*rcurrentlobe)*zphases).T
-        E_per_charge_ring=numpy.array(WLowerTri*E_per_current_ring).squeeze()
+        E_per_current_ring=((nzs*zcurrentlobe+nrs*rcurrentlobe)*zphases).T
+        E_per_charge_ring=numpy.array(WLowerTri @ E_per_current_ring).squeeze()
         
         if hasattr(theta,'__len__'): integrand=(wzs*charge_dist).reshape((len(wzs),1))\
                                                 *E_per_charge_ring
