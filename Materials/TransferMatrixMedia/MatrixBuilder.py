@@ -295,10 +295,10 @@ class TransmissionMatrix:
         
         """
         if polarization == 'p':
-            epsilon_in,epsilon_out,omega,kz_in,kz_out,sigma = sympy.symbols('epsilon_{0},epsilon_{1},omega,k_z{0},k_z{1},sigma{0}{1}'.format(surfaceCount,surfaceCount+1))
+            c,epsilon_in,epsilon_out,omega,kz_in,kz_out,sigma = sympy.symbols('c,epsilon_{0},epsilon_{1},omega,k_z{0},k_z{1},sigma{0}{1}'.format(surfaceCount,surfaceCount+1))
             
             eta_p = epsilon_in*kz_out/(epsilon_out*kz_in) 
-            xi_p = 4*sympy.pi*(sigma/29979245368)*kz_out/(epsilon_out*omega)     #29979245368, i.e. c is the conversion factor to convert sheet conductivity (sigma) from unit of cm/s to dimensionless (as frequency is measured in wavenumbers).
+            xi_p = 4*sympy.pi*(sigma/c)*kz_out/(epsilon_out*omega)     #29979245368, i.e. c is the conversion factor to convert sheet conductivity (sigma) from unit of cm/s to dimensionless (as frequency is measured in wavenumbers).
             half = sympy.Rational(1,2)
                 
             if surfaceCurrent == 'default':
@@ -314,7 +314,7 @@ class TransmissionMatrix:
             c,kz_in,kz_out,sigma,mu_in,omega = sympy.symbols('c,k_z{0},k_z{1},sigma{0}{1},mu_{0},omega'.format(surfaceCount,surfaceCount+1))
             
             eta_s = kz_out/kz_in
-            xi_s = 4*sympy.pi*(sigma/29979245368)*mu_in*omega/kz_in     #29979245368, i.e. c is the conversion factor to convert sheet conductivity (sigma) from unit of cm/s to dimensionless (as frequency is measured in wavenumbers).
+            xi_s = 4*sympy.pi*(sigma/c)*mu_in*omega/kz_in     #29979245368, i.e. c is the conversion factor to convert sheet conductivity (sigma) from unit of cm/s to dimensionless (as frequency is measured in wavenumbers).
             half = sympy.Rational(1,2)
             self.T = half*sympy.Matrix([[1+eta_s+xi_s, 1-eta_s+xi_s], [1-eta_s-xi_s, 1+eta_s-xi_s]])
             

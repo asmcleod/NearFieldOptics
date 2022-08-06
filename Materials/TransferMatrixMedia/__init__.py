@@ -180,11 +180,10 @@ class LayeredMediaTM(LayeredMedia):
         tp = C.get_analytical_transmission_coefficient()
         return tp
     
-    def h_field(self,freq,q=0,index=1,angle=None,\
-                     entrance=None,exit=None,**kwargs):
-        freq,q,hAWA = _prepare_freq_and_q_holder_(freq,q,angle=angle,entrance=entrance)
+    def h_field(self,freq,q=0,index=1,side='before'):
+        freq,q,hAWA = _prepare_freq_and_q_holder_(freq,q)
         C = Calculator.Calculator(self.T_p)
-        C.assemble_analytical_H_field(index,'before')
+        C.assemble_analytical_H_field(index,side=side)
         h = C.get_numerical_H_field(freq,q)
         hAWA+=h
         return hAWA
