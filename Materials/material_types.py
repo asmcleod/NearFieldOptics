@@ -26,7 +26,7 @@ def ensure_complex(val):
         try: return val.astype('complex')
         #Sometimes *val* is an array with *object* type elements (unconvertible)
         except TypeError: return val
-    else: return numpy.complex(val)
+    else: return complex(val)
 
 def safe_sqrt(val,flip_lt=0):
     #Make sure sqrt results in solution in the first quadrant of the complex plane
@@ -274,7 +274,7 @@ class IsotropicMaterial(BaseIsotropicMaterial):
             
              beta=1
              plasma_f,damping_f=D
-             sigma=plasma_f**2/(4*numpy.pi*damping_f)/(1-1j*freq/damping_f)**beta
+             sigma=plasma_f**2/(4*numpy.pi)/(damping_f-1j*freq)**beta
              result+=4*numpy.pi*1j*sigma/freq
             
              #plasma_f,damping_f=D
@@ -532,7 +532,7 @@ class TabulatedMaterialFromFile(TabulatedMaterial):
             file=open(epsfile,'rb')
             eps_data=pickle.load(file,encoding='bytes')
         elif epsfile.lower().endswith('.csv') or epsfile.lower().endswith('.txt'):
-            freq,eps1,eps2=misc.extract_array(file, dtype=numpy.float).T
+            freq,eps1,eps2=misc.extract_array(file, dtype=float).T
             eps_data=AWA(eps1+1j*eps2,axes=[freq],axis_names=['Frequency [cm^-1]'])
         else: Logger.error('File type not understood for file "%s".'%epsfile)
         
@@ -557,7 +557,7 @@ class TabulatedMagneticMaterialFromFile(TabulatedMagneticMaterial):
             file=open(epsmufile,'rb')
             eps_data=pickle.load(file,encoding='bytes')
         elif epsmufile.lower().endswith('.csv') or epsmufile.lower().endswith('.txt'):
-            freq,eps1,eps2,mu1,mu2=misc.extract_array(file, dtype=numpy.float).T
+            freq,eps1,eps2,mu1,mu2=misc.extract_array(file, dtype=float).T
             eps_data=AWA(eps1+1j*eps2,axes=[freq],axis_names=['Frequency [cm^-1]'])
             mu_data = AWA(mu1+1j*mu2,axes = [freq],axis_names = ['Frequency [cm^-1]'])
         else: Logger.error('File type not understood for file "%s".'%epsmufile)
@@ -628,7 +628,7 @@ class TabulatedSurfaceFromFile(TabulatedSurface):
             file=open(conductivity_file,'rb')
             conductivity_data=pickle.load(file,encoding='bytes')
         elif conductivity_file.lower().endswith('.csv'):
-            freq,sigma1,sigma2=misc.extract_array(file, dtype=numpy.float).T
+            freq,sigma1,sigma2=misc.extract_array(file, dtype=float).T
             conductivity_data=AWA(sigma1+1j*sigma2,axes=[freq],axis_names=['Frequency [cm^-1]'])
         else: Logger.error('File type not understood for file "%s".'%conductivity_file)
         
@@ -1335,7 +1335,7 @@ class TabulatedAnisotropicMaterialFromFile(TabulatedAnisotropicMaterial):
             extraordinary_eps_data=eps_data['extraordinary']
         elif epsfile.lower().endswith('.csv'):
             freq,ordinary_eps1,ordinary_eps2,\
-                extraordinary_eps1,extraordinary_eps2=misc.extract_array(file, dtype=numpy.float).T
+                extraordinary_eps1,extraordinary_eps2=misc.extract_array(file, dtype=float).T
             ordinary_eps_data=AWA(ordinary_eps1+1j*ordinary_eps2,\
                                   axes=[freq],axis_names=['Frequency [cm^-1]'])
             extraordinary_eps_data=AWA(extraordinary_eps1+1j*extraordinary_eps2,\

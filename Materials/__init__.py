@@ -476,12 +476,45 @@ Kucirkova_144nm_params[:,0]/=Kucirkova_144nm_params[:,3] #Divide by gaussian wid
 SiO2_144nm=IsotropicMaterial(eps_infinity=1.96,\
                              eps_vps=Kucirkova_144nm_params)
 
+##################################
+#--- SrTiO3: pervoskite insulator
+##################################
+
+wTO,gTO,wLO,gLO = 548,27,795,21
+eps0=5.2
+wTO2,gTO2,wLO2,gLO2 = 175,7,475,4
+wTO3,gTO3,wLO3,gLO3 = 90,3,172,3
+
+STO=IsotropicMaterial(eps_infinity=eps0,phonon_params=((wLO,gLO,wTO,gTO),
+                                                        (wLO2,gLO2,wTO2,gTO2),
+                                                        (wLO3,gLO3,wTO3,gTO3)))
+
 ########################################################################################
 #--- TaS2: high temperature (metallic) and low temperature (charge-ordered)
 ########################################################################################
 
 TaS2_NCCDW=TaS2_metal=TabulatedMaterialFromFile('TaS2_eps_230K.csv')
 TaS2_CCDW=TabulatedMaterialFromFile('TaS2_eps_30K.csv')
+
+#########
+#--- TiO2
+#########
+
+wTOs=[189,380,500]#,172]
+wLOs=[365,445,830]#,797]
+gTOs=[15,20,22]#,20]
+gLOs=[9,19,44]#,47]
+gfactor=1
+
+# Parameters from Schubert et al.
+phonon_params= [ [(wLO,gLO*gfactor,wTO,gTO*gfactor) \
+                  for wLO,gLO,wTO,gTO
+                  in zip(wLOs,gLOs,wTOs,gTOs)] ]*2 # ab-plane phonons
+phonon_params.append( [ (797,20*gfactor,172,20*gfactor) ] ) # c-axis phonon
+
+eps_infinity=[6,6,7]
+
+TiO2 = AnisotropicMaterial(phonon_params=phonon_params,eps_infinity=eps_infinity)
 
 ######################
 #---Compound Materials
