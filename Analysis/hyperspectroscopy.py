@@ -137,13 +137,13 @@ class Hyperspectroscopy(object):
 
     preferred_formats = ['.txt','.exr','.tiff'] # in order of preference
     clim_nstds = 2
+    debug = True
 
     def __init__(self, dirs=['AutoRepScan overview - 30x18 microns - S3 @ 12.5-7.7 microns x 11 (6-16)'],
                  channels=['Topo', 'S3', 'P3'], directions=['Forward', 'Backward'],
                  keys=np.linspace(12.5, 7.7, 11)):
 
         import copy
-        self.debug = True
 
         # Check keys and dirs
         keys = np.asarray(keys)
@@ -164,6 +164,7 @@ class Hyperspectroscopy(object):
         images_in_direction = dict(zip(channels, [{} for c in channels]))  # all channels
         self.images = dict(zip(directions,
                                  [copy.deepcopy(images_in_direction) for direction in directions]))  # all directions
+        self.file_paths = copy.deepcopy(self.images)
 
         # Load desired channel data
         shape = None # we'll be watching to see every image has the same shape
@@ -199,10 +200,12 @@ class Hyperspectroscopy(object):
 
                     # Load an image for each key
                     for key, image_file in zip(keylist, image_files):
-                        img = self.load_image( os.path.join(channeldir,image_file) )
+                        file_path = os.path.join(channeldir,image_file)
+                        img = self.load_image( file_path )
                         if shape is None: shape = img.shape
                         else: assert img.shape == shape,'Shape of image file "%s" must match %s!'%(image_file, str(shape))
                         self.images[direction][channel][key] = img
+                        self.file_paths[direction][channel][key] = file_path
 
         self.valid_mask = (1 + np.zeros(shape)).astype(bool)
 
@@ -250,7 +253,8 @@ class Hyperspectroscopy(object):
         self.images = copy.deepcopy(self.images_processed)
         self.valid_mask = copy.deepcopy(self.valid_mask_processed)
 
-    def load_image(self,image_file):
+    @classmethod
+    def load_image(cls,image_file):
 
         import os
         prefix,ext =  os.path.splitext(image_file)
@@ -281,7 +285,7 @@ class Hyperspectroscopy(object):
         else:
             raise NotImplementedError('Image extension "%s" not yet supported...'%ext)
 
-        if self.debug:  print('Loaded data from file "%s".' % image_file)
+        if cls.debug:  print('Loaded data from file "%s".' % image_file)
 
         return img
 
@@ -298,6 +302,66 @@ class Hyperspectroscopy(object):
 
         return img
 
+    @staticmethod
+    def serpent_unwrap(img, mask=None,fast_axis=0):
+
+        if fast_axis == 1:
+            iter_axis = 0  # if fast axis is y, then we will go column by column iterating on x
+        else:
+            iter_axis = 1  # if fast axis is x, then we will go row by row iterating on y
+
+        img_vals = []
+        Is, Js = AWA(np.array(img)).axis_grids
+        Ivals = []
+        Jvals = []
+        for i in range(img.shape[iter_axis]):
+            slices = [slice(None) for i in range(img.ndim)]
+            slices[iter_axis] = i
+            slices = tuple(slices)
+
+            img_line = np.array(img[tuple(slices)])
+            mask_line = np.array(mask[tuple(slices)]).astype(bool)
+            Iline = np.array(Is[tuple(slices)])
+            Jline = np.array(Js[tuple(slices)])
+
+            # The 'serpent' part means we flip the line whenever we are at an odd row
+            img_line = img_line[::(-1) ** i]
+            mask_line = mask_line[::(-1) ** i]
+            Iline = Iline[::(-1) ** i]
+            Jline = Jline[::(-1) ** i]
+
+            # serpent-unwrap only with the values under mask
+            img_vals = np.append(img_vals, img_line[mask_line])
+            Ivals = np.append(Ivals, Iline[mask_line]).astype(int)
+            Jvals = np.append(Jvals, Jline[mask_line]).astype(int)
+
+        return img_vals, Ivals, Jvals
+
+    @classmethod
+    def unwrap_image(cls,img,fast_axis=0,look_back=10,
+                     discont=np.pi,thresh=0.75,mask=None):
+
+        if mask is None:  mask = np.full(img.shape,1)
+
+        # unwrap based on comparison to previous entries
+        img_vals, Ivals, Jvals = cls.serpent_unwrap(img, fast_axis=fast_axis,
+                                                    mask=mask)
+        for i, img_val in enumerate(img_vals):
+            if i == 0: continue
+            back_ind = np.max((0, i - look_back))
+            preval = np.median(img_vals[back_ind:i])
+            if img_val - preval > thresh * discont:
+                img_vals[i] -= discont
+            elif img_val - preval < -thresh * discont:
+                img_vals[i] += discont
+
+        new_img = img.copy()
+        for i, j, val in zip(Ivals, Jvals, img_vals):
+            new_img[i, j] = val
+        new_img = AWA(new_img, adopt_axes_from=img)
+
+        return new_img
+
     def unwrap_images(self, channels=['P3'],
                       directions = None, keys=None,
                       fast_axis=0,
@@ -305,38 +369,6 @@ class Hyperspectroscopy(object):
                        plot=False,plot_clim=None):
 
         assert discont>0 and thresh>0.5
-
-        def serpent_unwrap(img,mask):
-
-            if fast_axis==1: iter_axis=0 # if fast axis is y, then we will go column by column iterating on x
-            else: iter_axis=1 # if fast axis is x, then we will go row by row iterating on y
-
-            img_vals=[]
-            Is,Js=AWA(np.array(img)).axis_grids
-            Ivals=[]
-            Jvals=[]
-            for i in range(img.shape[iter_axis]):
-                slices=[slice(None) for i in range(img.ndim)]
-                slices[iter_axis]=i
-                slices=tuple(slices)
-
-                img_line = np.array(img[tuple(slices)])
-                mask_line = np.array(mask[tuple(slices)]).astype(bool)
-                Iline = np.array(Is[tuple(slices)])
-                Jline = np.array(Js[tuple(slices)])
-
-                # The 'serpent' part means we flip the line whenever we are at an odd row
-                img_line = img_line[::(-1)**i]
-                mask_line = mask_line[::(-1)**i]
-                Iline = Iline[::(-1)**i]
-                Jline = Jline[::(-1)**i]
-
-                # serpent-unwrap only with the values under mask
-                img_vals = np.append(img_vals, img_line[mask_line])
-                Ivals = np.append(Ivals,Iline[mask_line]).astype(int)
-                Jvals = np.append(Jvals,Jline[mask_line]).astype(int)
-
-            return img_vals,Ivals,Jvals
 
         self.images_processed = copy.deepcopy(self.images)
         self.valid_mask_processed = copy.deepcopy(self.valid_mask)
@@ -364,19 +396,8 @@ class Hyperspectroscopy(object):
                         if plot_clim is not None: plt.clim(*plot_clim)
                         else: plt.clim(m-discont,m+discont)
 
-                    # unwrap based on comparison to previous entries
-                    img_vals,Ivals,Jvals = serpent_unwrap(img,self.valid_mask)
-                    for i,img_val in enumerate(img_vals):
-                        if i==0: continue
-                        back_ind = np.max((0,i-look_back))
-                        preval = np.median(img_vals[back_ind:i])
-                        if img_val - preval > thresh*discont: img_vals[i] -= discont
-                        elif img_val - preval < -thresh*discont: img_vals[i] += discont
-
-                    new_img = img.copy()
-                    for i,j,val in zip(Ivals,Jvals,img_vals):
-                        new_img[i,j]=val
-                    new_img = AWA(new_img,adopt_axes_from=img)
+                    new_img = self.unwrap_image(img,fast_axis=fast_axis,look_back=look_back,
+                                                discont=discont,thresh=thresh,mask=self.valid_mask)
 
                     if plot:
                         plt.subplot(122)
@@ -432,7 +453,11 @@ class Hyperspectroscopy(object):
             if line_poly:
                 x = np.arange(len(line))
                 p = np.polyfit(x[mline], line[mline], deg=line_poly)
-                line -= np.polyval(p, x)
+                poly = np.polyval(p, x)
+
+                if poly_divide:
+                    line /= poly
+                else: line -= poly
 
             if median_of_diffs_flatten:
                 if i == 0: pass
@@ -499,7 +524,7 @@ class Hyperspectroscopy(object):
                         plt.gca().set_aspect('equal')
                         plt.title('Before flattening: %s' % str((direction, channel, key)))
 
-                        keep=self.valid_mask_processed.astype(bool)
+                        keep=self.valid_mask_processed.astype(bool)*np.isfinite(img)
                         m,s = np.median(img[keep]),np.std(img[keep])
                         plot_clim = (m-self.clim_nstds*s,
                                      m+self.clim_nstds*s)
@@ -519,7 +544,7 @@ class Hyperspectroscopy(object):
                         plt.gca().set_aspect('equal')
                         plt.title('After flattening: %s' % str((direction, channel, key)))
 
-                        keep=self.valid_mask_processed.astype(bool)
+                        keep=self.valid_mask_processed.astype(bool)*np.isfinite(img)
                         m,s = np.median(img[keep]),np.std(img[keep])
                         plot_clim = (m-self.clim_nstds*s,
                                      m+self.clim_nstds*s)
@@ -591,7 +616,7 @@ class Hyperspectroscopy(object):
                 plt.title('Diff before synchronizing: %s' % str((direction, ref_channel, key)))
                 plt.grid(ls='--', color='w')
                 if plot_clim is None:
-                    keep=self.valid_mask_processed.astype(bool)
+                    keep=self.valid_mask_processed.astype(bool)*np.isfinite(img)
                     m,s = np.median(img[keep]),np.std(img[keep])
                     plot_clim = (m-self.clim_nstds*s,
                                  m+self.clim_nstds*s)
@@ -616,7 +641,7 @@ class Hyperspectroscopy(object):
                 plt.title('Diff after synchronizing: %s' % str((direction, ref_channel, key)))
                 plt.grid(ls='--', color='w')
                 if plot_clim is None:
-                    keep = self.valid_mask_processed.astype(bool)
+                    keep = self.valid_mask_processed.astype(bool)*np.isfinite(img)
                     m, s = np.median(img[keep]), np.std(img[keep])
                     plot_clim = (m - self.clim_nstds * s,
                                  m + self.clim_nstds * s)
@@ -682,7 +707,7 @@ class Hyperspectroscopy(object):
                         plt.title('Diff before synchronizing: %s' % str((direction, ref_channel, key)))
                         plt.grid(ls='--', color='w')
                         if plot_clim is None:
-                            keep=self.valid_mask_processed.astype(bool)
+                            keep=self.valid_mask_processed.astype(bool)*np.isfinite(img)
                             m,s = np.median(img[keep]),np.std(img[keep])
                             plot_clim = (m-self.clim_nstds*s,
                                          m+self.clim_nstds*s)
@@ -699,7 +724,7 @@ class Hyperspectroscopy(object):
                         plt.title('After synchronizing: %s' % str((direction, ref_channel, key)))
                         plt.grid(ls='--', color='w')
                         if plot_clim is None:
-                            keep=self.valid_mask_processed.astype(bool)
+                            keep=self.valid_mask_processed.astype(bool)*np.isfinite(img)
                             m,s = np.median(img[keep]),np.std(img[keep])
                             plot_clim = (m-self.clim_nstds*s,
                                          m+self.clim_nstds*s)
@@ -1369,3 +1394,281 @@ class PCA_plus_GMM:
         metric = 1 - diff / norm
 
         return float(metric)
+
+
+class AutoRepLinescan(Hyperspectroscopy):
+    """This is a version of Hyperspectroscopy with (for now) just one key,
+    but extra features to interpret the x-axis as a segmented energy axis."""
+
+    #@TODO: include 'valid_mask' in procedures so that synchronization of foward / backward can work
+
+    def __init__(self,directory,segment_labels,
+                 channels=['ZHeight','Aux3','Aux4'],
+                 directions=['Forward','Backward'],
+                 transpose=False,
+                 key='default'):
+        # Transpose to make slow axis (energy) increment horizontally along x-axis
+
+        filenames = os.listdir(directory)
+        self.images = {}
+        self.segment_labels_provided = segment_labels # These will be e.g. wavelengths or frequencies
+        self.keys = [key]
+        self.channels = channels
+        self.directions = directions
+
+        for direction in self.directions:
+            self.images[direction]={}
+            for channel in self.channels:
+
+                filename = list(filter(lambda f: channel in f and direction in f,
+                                                 filenames))[0]
+                filepath = os.path.join(directory,filename)
+
+                img = Hyperspectroscopy.load_image(filepath)
+                if transpose: img=img.T
+                self.images[direction][channel] = {self.keys[0]: img}
+
+        self.valid_mask = np.full(self.images[direction][channel][self.keys[0]].shape,True)
+
+    def equalize_xy_axes(self):
+
+        img = self.images[self.directions[0]][self.channels[0]][self.keys[0]]
+        xs,ys = img.axes
+        dx,dy = np.ptp(xs),np.ptp(ys)
+
+        if dx>dy: new_axes = [xs,np.linspace(0,dx,len(ys))]
+        else: new_axes = [np.linspace(0,dy,len(xs)),ys]
+
+        for direction in self.directions:
+            for channel in self.channels:
+                for key in self.keys:
+                    img = self.images[direction][channel][key]
+                    img.set_axes(new_axes)
+
+    def identify_segments(self,ref_channel='Aux4',ref_direction='Forward',
+                          min_width=14,max_width=16,Nwidths=10, buffer=3,
+                          smoothing=1):
+
+        from common import numerical_recipes as numrec
+        ref_img = self.images[ref_direction][ref_channel][self.keys[0]]
+
+        # assume fast axis is 1, average over that one
+        gx = np.gradient(np.mean(ref_img, axis=1))
+        if smoothing:
+            gx = numrec.smooth(gx, window_len=smoothing)
+
+        plt.figure()
+        np.abs(gx).plot()
+        plt.title('Switch spots on %s, %s'%(ref_channel,ref_direction))
+
+        Nxs = np.linspace(min_width, max_width, Nwidths)
+        dx = np.diff(gx.axes[0])[0]
+
+        to_maximize_list = []
+        for Nx in Nxs:
+            to_maximize = 0
+            i = ind = 0
+            while ind < ref_img.shape[0]:
+                to_maximize += gx[ind]
+                i += 1
+                ind = int(np.round(i * Nx))
+            N_switches = i + 1
+            to_maximize /= N_switches
+            to_maximize_list.append(to_maximize)
+
+        Nx = Nxs[np.argmax(to_maximize_list)]
+        print('Best segment width:', Nx)
+        i = 0
+        while i * Nx < len(gx):
+            plt.axvline(dx * Nx * i, ls='--', color='k', alpha=.5)
+            i += 1
+
+        plt.figure()
+        plt.plot(Nxs, to_maximize_list)
+        plt.ylabel('Residual')
+        plt.xlabel('Segment width')
+        plt.axvline(Nx, ls='--', color='k', alpha=.5)
+
+        #--- Now that we have segment widths, we can get segment labels map
+        segment_labels = []
+        for i in range(ref_img.shape[0]):
+
+            segment_ind = int(i / Nx)
+            segment_progress = i % Nx
+            if segment_progress < buffer / 2 or (Nx - segment_progress) < buffer / 2:
+                segment_labels.append(np.nan)
+            else:
+                segment_labels.append(self.segment_labels_provided[segment_ind])
+
+        # duplicate over all entries of fast axis, which we averaged over
+        segment_labels_map = np.array([segment_labels for i in range(ref_img.shape[1])])
+
+        # as it stands, fast axis is 0, but we want it to be 1, so transpose
+        segment_labels_map = segment_labels_map.T
+
+        segment_labels_map = AWA(segment_labels_map, adopt_axes_from=ref_img)
+
+        plt.figure()
+        segment_labels_map.plot()
+        plt.title('Segments')
+
+        self.segment_labels_map = segment_labels_map
+        self.segment_labels = list(filter(np.isfinite,
+                                          np.unique(segment_labels_map)))
+
+        return self.segment_labels_map
+
+    def correct_drift_with_topo_channel(self,topo_channel = 'Z Height',
+                                        plot=True):
+
+        self.images_processed = copy.deepcopy(self.images)
+        self.valid_mask_processed = copy.deepcopy(self.valid_mask)
+
+        for direction in self.directions:
+            topo = self.images[direction][topo_channel][self.keys[0]]
+            ys = topo.axes[1]
+            y0 = np.mean(ys)
+
+            if plot:
+                plt.figure()
+                topo.plot()
+                plt.title('Before drift correction: %s, %s'%(topo_channel,direction))
+
+            for i in range(len(topo)):
+                topo_line = topo[i]
+                topo_line = topo_line - np.median(topo_line)
+                shift = np.sum((ys - y0) * topo_line) / np.sum(topo_line)
+                new_ys = ys - shift
+                for channel in self.channels:
+                    img = self.images_processed[direction][channel][self.keys[0]]
+                    img[i] = img[i].interpolate_axis(new_ys, axis=0,
+                                                     extrapolate=True, bounds_error=False)
+
+                    if plot and channel == topo_channel:
+                        plt.figure()
+                        img.plot()
+                        plt.title('After drift correction: %s, %s' % (topo_channel, direction))
+
+    @staticmethod
+    def farfield_flatten_residual(params, coords, target_line, zone_masks, multiplicative=False,pow=1):
+
+        model = np.polyval(params, coords)
+        vals = []
+        for zone_mask in zone_masks:
+            zone_model = model[zone_mask]
+            zone_target = target_line[zone_mask]
+            # subtract or divide depending on amp/phase
+            if multiplicative:
+                zone_model_rel = zone_model / np.mean(zone_model)
+                zone_target_rel = zone_target / np.mean(zone_target)
+            else:
+                zone_model_rel = zone_model - np.mean(zone_model)
+                zone_target_rel = zone_target - np.mean(zone_target)
+
+            new_vals = np.abs(zone_model_rel - zone_target_rel)**pow / len(zone_target_rel)
+            vals = np.append(vals, new_vals)
+
+        return np.array(vals)
+
+    def far_field_correct(self,channel,directions=None,
+                          zones=[(0, 3.6), (3.65, 4.4), (4.4, 7)],
+                          multiplicative=False, deg=10,
+                          plot=True, nstds_clim=4,pow=1,
+                          **kwargs):
+
+        from common import plotting
+        from scipy.optimize import leastsq
+
+        self.images_processed = copy.deepcopy(self.images)
+        self.valid_mask_processed = copy.deepcopy(self.valid_mask)
+
+        linefunc = plt.axhline
+
+        if directions is None: directions = self.directions
+        for direction in directions:
+            
+            img = self.images_processed[direction][channel][self.keys[0]]
+            img_before = img.copy()
+            coords = img.axes[1]
+    
+            if plot:
+                plt.figure()
+                img.plot()
+                plt.title('Before far-field correction: %s'%direction)
+                m = np.median(img[np.isfinite(img)])
+                s = np.std(img[np.isfinite(img)])
+                plt.clim(m - nstds_clim * s, m + nstds_clim * s)
+    
+            # make zone masks and plot their locations
+            self.zone_masks = []
+            cs = plotting.bluered_colors(len(zones))
+            for start, stop in zones:
+                if plot:
+                    c = next(cs)
+                    linefunc(start, color=c)
+                    linefunc(stop, color=c)
+                self.zone_masks.append((coords > start) * (coords < stop))
+    
+            # Loop over segments
+            segment_labels = filter(np.isfinite, np.unique(self.segment_labels_map))
+            for segment_label in segment_labels:
+                # print('Fitting segment label ',segment_label)
+                segment_mask = self.segment_labels_map == segment_label
+                segment_span = segment_mask[:,0] # every y-value has the same span so just pick one
+                target_line = np.mean(img[segment_span,:], axis=0)
+                args = (coords, target_line, self.zone_masks, multiplicative,pow)
+    
+                params0 = np.polyfit(coords, target_line, deg=deg)
+                # (target_line-np.mean(target_line)).plot()
+                # model = np.polyval(params0,ys)
+                # plt.plot(ys,model - np.mean(model))
+                params_fit = leastsq(self.farfield_flatten_residual, params0,
+                                     args=args,**kwargs)[0]  # First element is the fit result
+                self.model_ff_factor = np.polyval(params_fit, coords)
+
+                model_ff_factor = self.model_ff_factor[np.newaxis,:] # apply uniformly across segment width along x-axis
+                if multiplicative:
+                    img_modified = img / model_ff_factor
+                    img_modified /= np.mean(img_modified[segment_mask]) # the mean is ad hoc, so bring to 1
+                else:
+                    img_modified = img - model_ff_factor
+                    img_modified -= np.mean(img_modified[segment_mask]) # the offset is ad hoc, so bring to zero
+
+                # Make the update to image only within this segment
+                img = np.where(segment_mask,img_modified,img)
+                
+                #where_compare = np.isfinite(img)
+                #print('Image changed?',np.any(img_before[where_compare] != img[where_compare]))
+
+            img = AWA(img,adopt_axes_from = img_before)
+            self.images_processed[direction][channel][self.keys[0]] = img
+
+            if plot:
+                plt.figure()
+                img.plot()
+                plt.title('After far-field correction: %s'%direction)
+                cs = plotting.bluered_colors(len(zones))
+                for start, stop in zones:
+                    c = next(cs)
+                    linefunc(start, color=c)
+                    linefunc(stop, color=c)
+                m = np.median(img[np.isfinite(img)])
+                s = np.std(img[np.isfinite(img)])
+                plt.clim(m - nstds_clim * s, m + nstds_clim * s)
+
+    def resample_linescan(self,target_mask,channel='Aux3',direction='Forward'):
+
+        target_dict = self.images
+        linescan_img = target_dict[direction][channel][self.keys[0]]
+
+        resampled_mean = [np.mean(linescan_img[(self.segment_labels_map == segment_label)*target_mask]) \
+                     for segment_label in self.segment_labels]
+        resampled_mean = AWA(resampled_mean,axes=[self.segment_labels],
+                        axis_names=['Segment name'])
+
+        resampled_std = [np.std(linescan_img[(self.segment_labels_map == segment_label)*target_mask]) \
+                        for segment_label in self.segment_labels]
+        resampled_std = AWA(resampled_std,axes=[self.segment_labels],
+                        axis_names=['Segment name'])
+
+        return resampled_mean,resampled_std
