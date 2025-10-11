@@ -131,7 +131,7 @@ class TipModel(object):
         if verbose: Logger.write('\tSignal shape: %s'%repr(signal.shape))
         
         #Assume z-axis is first axis#
-        ts_shape=(len(cls.ts),)+(1,)*(signal.ndim-1)
+        ts_shape=(len(cls.ts),)+(1,)*(signal.ndim - 1)
         ts_grid=cls.ts.reshape(ts_shape)
         signal=simps(numpy.cos(2*numpy.pi*harmonic*ts_grid)*signal,\
                      x=cls.ts,\
@@ -416,7 +416,7 @@ class _SSEQModel_(TipModel):
         new_signal=signal.interpolate_axis(new_zs,axis=0,kind='slinear')
         
         #Demodulate
-        ts_shape=(len(cls.ts),)+(1,)*(signal.ndim-1)
+        ts_shape=(len(cls.ts),)+(1,)*(signal.ndim - 1)
         ts_grid=cls.ts.reshape(ts_shape)
         signal=simps(numpy.cos(2*numpy.pi*harmonic*ts_grid)*new_signal,\
                      x=cls.ts,\
@@ -834,7 +834,7 @@ class _LightningRodModel_(TipModel):
         
         harmonics=numpy.array(harmonics).reshape((len(harmonics),1))
         weights=numpy.cos(2*numpy.pi*harmonics*ts)*wts
-        weights_grid=weights.reshape(weights.shape+(1,)*(signals.ndim-1))
+        weights_grid=weights.reshape(weights.shape + (1,) * (signals.ndim - 1))
         
         signals_vs_time=signals.interpolate_axis(zs,axis=0) ; signals_vs_time.set_axes([ts],axis_names=['t'])
         

@@ -54,7 +54,7 @@ def _prepare_freq_and_q_holder_(freq,q,\
                                 entrance=None):
     
     #Convert angle to q
-    if angle!=None:
+    if angle is not None:
         assert isinstance(angle,numbers.Number),'`angle` must be a single number.'
         if not entrance: entrance=Air
         angle_rad=angle/180.*pi

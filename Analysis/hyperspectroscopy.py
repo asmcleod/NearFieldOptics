@@ -1,7 +1,10 @@
 import numpy as np
 import os
 import copy
+import time
 from matplotlib import pyplot as plt
+from common import misc
+from common import numerics as num
 from common.baseclasses import AWA
 import cv2
 
@@ -140,24 +143,25 @@ class Hyperspectroscopy(object):
     debug = True
 
     def __init__(self, dirs=['AutoRepScan overview - 30x18 microns - S3 @ 12.5-7.7 microns x 11 (6-16)'],
-                 channels=['Topo', 'S3', 'P3'], directions=['Forward', 'Backward'],
+                 channels=None, directions=['Forward', 'Backward'],
                  keys=np.linspace(12.5, 7.7, 11)):
 
+        if channels is None:
+            channels = ['Topo', 'S3', 'P3']
         import copy
 
         # Check keys and dirs
-        keys = np.asarray(keys)
+        assert hasattr(keys,'__len__')
         if len(dirs) > 1:
-            assert keys.ndim == 2 and len(keys) == len(dirs), \
+            assert hasattr(keys[0],'__len__') and len(keys) == len(dirs), \
                 'Provide a key list in `keys` for each of the directories you supplied in `dirs` (you provided %i!=%i).'\
                 %(len(keys), len(dirs))
         else:
-            assert keys.ndim == 1
-            keys = np.asarray([keys])
+            keys =[keys]
 
         self.dirs = dirs
         self.channels = channels
-        self.keys = keys.flatten()  # Join all the individual key lists
+        self.keys = np.array(list(misc.flatten(keys)))  # Join all the individual key lists
         self.directions = directions
 
         # Make holder for image data in all directions
@@ -203,7 +207,9 @@ class Hyperspectroscopy(object):
                         file_path = os.path.join(channeldir,image_file)
                         img = self.load_image( file_path )
                         if shape is None: shape = img.shape
-                        else: assert img.shape == shape,'Shape of image file "%s" must match %s!'%(image_file, str(shape))
+                        else:
+                            if img.shape != shape: img=img.T
+                            assert img.shape == shape,'Shape of image file "%s" must match %s!'%(image_file, str(shape))
                         self.images[direction][channel][key] = img
                         self.file_paths[direction][channel][key] = file_path
 
@@ -252,6 +258,18 @@ class Hyperspectroscopy(object):
         if self.debug: print('Persisting the processed data from `self.images_processed` to `self.images`!')
         self.images = copy.deepcopy(self.images_processed)
         self.valid_mask = copy.deepcopy(self.valid_mask_processed)
+
+    def update_valid_mask(self,valid_mask = None,
+                          use_channel='S3'):
+        """Further udate the internal mask (or take from provided `valid_mask` to exclude image regions that are unknown (nan)."""
+
+        if valid_mask is None: valid_mask = self.valid_mask
+
+        for key in self.keys:
+            for direction in self.directions:
+                img = self.images[direction][use_channel][key]
+                assert valid_mask.shape == img.shape
+                valid_mask *= np.isfinite(img)
 
     @classmethod
     def load_image(cls,image_file):
@@ -421,6 +439,7 @@ class Hyperspectroscopy(object):
         from common import numerical_recipes as numrec
         img = copy.copy(img) # Don't modify the original
         if mask is None: mask = np.full(img.shape,1)
+        mask *= np.isfinite(img)
         mask = np.array(mask).astype(bool)
 
         if line_poly: assert isinstance(line_poly, int) and line_poly >= 0
@@ -653,9 +672,6 @@ class Hyperspectroscopy(object):
                                         method='homography',
                                         use_valid_data=True,
                                         plot=False,plot_clim=None):
-        # Okay, this actually need some fancier 1D transformation..
-        # We will figure out how directions are relatively shifted for each key,
-        # and we'll use a global shift (the median one) to correct them all
 
         import copy
 
@@ -690,7 +706,7 @@ class Hyperspectroscopy(object):
         # Now actually perform the shifting using the median shifts
         for key in self.keys:
             ref_image = self.images_processed[ref_direction][ref_channel][key]
-            ref_image = self.sanitized_image(ref_image,sanitize_where=sanitize_where)
+            ref_image_to_plot = self.sanitized_image(ref_image,sanitize_where=sanitize_where)
 
             for direction in directions_to_sync:
 
@@ -699,9 +715,10 @@ class Hyperspectroscopy(object):
                     distorted_image = self.images_processed[direction][channel][key]
 
                     if plot and channel is ref_channel:
+                        distorted_image_to_plot = self.sanitized_image(distorted_image,sanitize_where=sanitize_where)
                         plt.figure(figsize=figsize)
                         plt.subplot(121)
-                        img = distorted_image-ref_image
+                        img = distorted_image_to_plot-ref_image_to_plot
                         (img).plot(colorbar=False)
                         plt.gca().set_aspect('equal')
                         plt.title('Diff before synchronizing: %s' % str((direction, ref_channel, key)))
@@ -717,8 +734,9 @@ class Hyperspectroscopy(object):
                     self.images_processed[direction][channel][key] = image_synchronized
 
                     if plot and channel is ref_channel:
+                        image_synchronized_to_plot = self.sanitized_image(image_synchronized,sanitize_where=sanitize_where)
                         plt.subplot(122)
-                        img = image_synchronized - ref_image
+                        img = image_synchronized_to_plot - ref_image_to_plot
                         (img).plot(colorbar=False)
                         plt.gca().set_aspect('equal')
                         plt.title('After synchronizing: %s' % str((direction, ref_channel, key)))
@@ -736,11 +754,14 @@ class Hyperspectroscopy(object):
         x,y = self.xy
 
         if valid_data: #Trim to smallest rectangle with valid data
+            self.update_valid_mask(use_channel=channel)
 
             # Replace internal missing data with medians
             mask = self.valid_mask.copy()
             for img in imgs:
-                img[~self.valid_mask] = np.median(img[self.valid_mask])
+                m = np.median(img[self.valid_mask])
+
+                img[~self.valid_mask] = m
 
             xrange,yrange = self.get_valid_xy_range()
             imgs = imgs[:,xrange]
@@ -752,8 +773,7 @@ class Hyperspectroscopy(object):
             mask = mask[:,yrange]
 
         else:
-            mask = AWA(np.zeros(imgs[0].shape)+1,
-                       adopt_axes_from=imgs[0])
+            mask = np.zeros(imgs[0].shape)+1
 
         imgs = AWA(imgs,axes=[self.keys,x,y],
                    axis_names=['Key value','X','Y'])
@@ -895,16 +915,26 @@ class PCA_plus_GMM:
                 score_image = score_images[i]
 
                 xvals = np.array(score_image).flatten()
+
+                Nangles=200; pow=2
+                angles = np.linspace(0, np.pi, Nangles)
+                Xbig = xvals[:, np.newaxis] * np.exp(-1j * angles)[np.newaxis, :]
+                metric = np.sum(np.abs(Xbig.real)**pow,axis=0)
+                theta = angles[np.argmax(metric)]
+
+                """
                 Xvals = np.abs(xvals)
 
                 redundant = (xvals.real == np.median(xvals.real))
                 xvals = xvals[~redundant]
                 Xvals = Xvals[~redundant]
 
-                pow=2
+                pow=1
                 A=np.sum( (Xvals**pow * np.abs(xvals.imag)) )
                 B=np.sum( (Xvals**pow * np.abs(xvals.real)) )
                 theta = np.arctan(A/B) # SO, scores are on average rotated by `theta`
+                """
+
                 print('Rotated principal component $nu=%i$ by $theta=%1.2f$...'%(i,theta))
                 phase_factor = np.exp(-1j*theta)
 
@@ -934,7 +964,9 @@ class PCA_plus_GMM:
                     plt.gca().set_aspect('equal')
                     plt.title(r'Scores for principal component $\nu=%i$' % i)
 
-        return score_images,principal_components,eigvals
+        average_component = Xmean
+
+        return score_images,principal_components,eigvals,average_component
 
     def __init__(self, data_cube, valid_mask = None, weights=None, plot_PCA=True,**kwargs):
         """The only thing this will do is store the data cube, run PCA, and store the PCA results."""
@@ -956,24 +988,38 @@ class PCA_plus_GMM:
 
         # --- PCA part
         data_for_PCA = self.data_cube * weights
-        self.scores_cube, self.principal_components, self.eigvals = self.run_PCA(data_for_PCA,
-                                                                                 plot=plot_PCA,**kwargs)
+        self.scores_cube, self.principal_components, self.eigvals,self.average_component = self.run_PCA(data_for_PCA,
+                                                                                                        plot=plot_PCA,**kwargs)
 
-    def init_clustering(self, principal_components=3,
-                        n_clusters=3, cluster_centers=[],
+    def init_clustering(self, principal_components=None,
+                        nclusters=3, cluster_centers=None,
                         cluster_dimensions=None,
                         histogram_dim1=0,histogram_dim2=1,
                         nstds_binning=4,nstds_clim=.5,Nbins=100,
                         picker_radius=0.1):
+        # The result of PCA, `self.scores_cube`, might have many principal components.
+        # But select fewer "active" components for clustering by selecting among them with `principal_components`.
+        # If scores are complex, there will be a dimensional space for clustering twice the number of "active" principal components.
 
         # --- Find out what which active principal components are desired for clustering
-        if  not hasattr(principal_components, '__len__'):
+        if principal_components is None:
+            principal_components = len(self.scores_cube) # size of score cube is a good default for how many principal components
+        if not hasattr(principal_components, '__len__'):
             principal_components = np.arange(principal_components)  # a list of numbers
         self.active_principal_components = principal_components
 
-        assert hasattr(cluster_centers,'__len__')
-        self.cluster_centers = cluster_centers
-        self.n_clusters = n_clusters
+        if np.any(cluster_centers):
+            assert hasattr(cluster_centers,'__len__')
+            self.init_cluster_centers = cluster_centers
+            self.init_nclusters = len(cluster_centers)
+        else:
+            self.init_cluster_centers = []
+            self.init_nclusters=nclusters
+
+        # Remove any existing gmm, since we are (re-)initializing
+        if hasattr(self,'gmm'):
+            print('Erasing pre-existing GMM...')
+            del self.gmm
 
         # --- Build vectors that identify points to be clustered;
         # take these from the scores of active principal components
@@ -983,39 +1029,34 @@ class PCA_plus_GMM:
                                 nu in self.active_principal_components]
             pca_score_vecs_i = [self.scores_cube[nu].imag.flatten() for \
                                 nu in self.active_principal_components]
-            self.pca_score_vecs = []
+            self.clustering_vecs = []
             # inter-leave the real and imaginary scores as separate dimensions for clustering
             for nu in range(len(self.active_principal_components)):
-                self.pca_score_vecs.append(pca_score_vecs_r[nu])
-                self.pca_score_vecs.append(pca_score_vecs_i[nu])
+                self.clustering_vecs.append(pca_score_vecs_r[nu])
+                self.clustering_vecs.append(pca_score_vecs_i[nu])
         else:
-            self.pca_score_vecs = [self.scores_cube[nu].flatten() for \
-                                   nu in self.active_principal_components]  # Flatten raw images into 1D score arrays
+            self.clustering_vecs = [self.scores_cube[nu].flatten() for \
+                                    nu in self.active_principal_components]  # Flatten raw images into 1D score arrays
+        # @TODO: Here is where we weight by PCA importance
 
         # We can toss out useless or redundant dimensions.
         # For example, to use complex PCs [0,1] but cluster with (PC1.real, PC2.real, PC3.real), then we "keep dimensions" (1,2,3)
         if cluster_dimensions is not None:
-            self.pca_score_vecs = [self.pca_score_vecs[dim] for dim in cluster_dimensions]
+            self.clustering_vecs = [self.clustering_vecs[dim] for dim in cluster_dimensions]
 
-        self.pca_score_vecs = np.array(self.pca_score_vecs).T  # Put points index first
-        self.ndim = self.pca_score_vecs.shape[1]  # could be twice the number of principal components if scores were complex
+        self.clustering_vecs = np.array(self.clustering_vecs).T  # Put points index first
+        self.clustering_ndim = self.clustering_vecs.shape[1]  # could be twice the number of principal components if scores were complex
 
         # Inspect the distribution of the space for clustering
-        self.score_means = [np.mean(x) for x in self.pca_score_vecs.T]
-        self.score_stds = [np.std(x) for x in self.pca_score_vecs.T]
-        self.score_bins = [np.linspace(x0 - nstds_binning * std,
-                                       x0 + nstds_binning * std, Nbins) \
-                           for x0, std in zip(self.score_means, self.score_stds)]
+        self.clustering_vec_means = [np.mean(x) for x in self.clustering_vecs.T]
+        self.clustering_vec_stds = [np.std(x) for x in self.clustering_vecs.T]
+        self.clustering_vec_bins = [np.linspace(x0 - nstds_binning * std,
+                                                x0 + nstds_binning * std, Nbins) \
+                                    for x0, std in zip(self.clustering_vec_means, self.clustering_vec_stds)]
         self.nstds_clim = nstds_clim
-        self.default_center = [0 for i in range(self.ndim)]
 
-        # We have a desired number of clusters, maybe with or without centers provided, so leave the rest for GMM
-        if self.n_clusters is not None: return
-
-        # If cluster centers were provided, we know how may clusters to use
-        if len(self.cluster_centers):
-            self.n_clusters = len(self.cluster_centers)
-            return
+        # We specified how many clusters we want, so leave for GMM to figure out centers
+        if self.init_nclusters is not None: return
 
         # Otherwise, this is our invocation to manually identify cluster centers
 
@@ -1028,15 +1069,15 @@ class PCA_plus_GMM:
 
         # Get score maps for involved principal components
         img = self.scores_cube[0]
-        self.map1 = AWA(self.pca_score_vecs[:,self.histogram_dim1].reshape(img.shape),
+        self.map1 = AWA(self.clustering_vecs[:, self.histogram_dim1].reshape(img.shape),
                         adopt_axes_from=img)
-        self.map2 = AWA(self.pca_score_vecs[:,self.histogram_dim2].reshape(img.shape),
+        self.map2 = AWA(self.clustering_vecs[:, self.histogram_dim2].reshape(img.shape),
                         adopt_axes_from=img)
 
         # Get coordinates in latent variable space and also real-space
 
-        self.latent_coords_all = list(zip(self.pca_score_vecs[:, self.histogram_dim1],
-                                          self.pca_score_vecs[:, self.histogram_dim2]))
+        self.latent_coords_all = list(zip(self.clustering_vecs[:, self.histogram_dim1],
+                                          self.clustering_vecs[:, self.histogram_dim2]))
         self.latent_coords_all = np.array(self.latent_coords_all)
         self.map_X,self.map_Y =self.map1.axis_grids
         self.xy_coords_all = np.array(list(zip(self.map_X.flatten(),
@@ -1079,18 +1120,35 @@ class PCA_plus_GMM:
 
         print('Run `run_GMM()` once you have selected the initial cluster centers!')
 
-    def histogram2D(self, dim1, dim2,ax=None,**kwargs):
+    def histogram1D(self,dim=0):
+
+        bins = self.clustering_vec_bins[dim]
+        scores = self.clustering_vecs[:, dim]
+
+        h = num.bin_array(scores,bins=bins)
+        h.plot()
+        #h=plt.hist(scores.flatten(), bins=bins, edgecolor='black')
+        plt.xlabel('PC %i' % dim)
+        plt.ylabel('Frequency')
+        plt.tight_layout()
+
+        return h
+
+    def histogram2D(self, dim1, dim2,
+                    rot_angle=0,ax=None,**kwargs):
 
         from matplotlib.colors import LogNorm
 
-        scores1, scores2 = self.pca_score_vecs[:, dim1], self.pca_score_vecs[:, dim2]
-        bins1, bins2 = self.score_bins[dim1], self.score_bins[dim2]
+        bins1, bins2 = self.clustering_vec_bins[dim1], self.clustering_vec_bins[dim2]
+        scores1, scores2 = self.clustering_vecs[:, dim1], self.clustering_vecs[:, dim2]
+        X = np.cos(rot_angle)*scores1 + np.sin(rot_angle)*scores2
+        Y = -np.sin(rot_angle)*scores1 + np.cos(rot_angle)*scores2
 
         if 'norm' not in kwargs:
             kwargs['norm'] = LogNorm(vmin=0.01, vmax=1)
 
         if ax: plt.sca(ax)
-        h = plt.hist2d(scores1, scores2,
+        h = plt.hist2d(X,Y,
                        bins=(bins1, bins2),
                        **kwargs)
         #plt.gca().set_aspect('equal')
@@ -1194,14 +1252,15 @@ class PCA_plus_GMM:
 
         if event.key == "enter":
 
-            new_cluster_center = copy.copy(self.default_center)
+            new_cluster_center = [0 for i in range(self.clustering_ndim)] # Initialize an empty center
             new_cluster_center[self.histogram_dim1] = self.tentative_xy[0]
             new_cluster_center[self.histogram_dim2] = self.tentative_xy[1]
-            self.cluster_centers.append(new_cluster_center)
+            self.init_cluster_centers.append(new_cluster_center)
+            self.init_nclusters = len(self.init_cluster_centers) # Since we don't have a gmm yet, update the intended number of clusters
 
             try: self.tentative_xy_marker.remove()
             except: pass
-            cluster_no = len(self.cluster_centers)
+            cluster_no = len(self.init_cluster_centers)
 
             text_fontsize=12
 
@@ -1236,8 +1295,7 @@ class PCA_plus_GMM:
     def done_selecting_centers(self,event):
         if event.key == "escape":
             for event in self.events: self.fig.canvas.mpl_disconnect(event)
-            self.n_clusters = len(self.cluster_centers)
-            self.ax_histogram.set_title("Successfully selected %i cluster centers!"%self.n_clusters)
+            self.ax_histogram.set_title("Successfully selected %i cluster centers!" % self.get_gmm_nclusters())
 
             self.draw()
 
@@ -1246,19 +1304,36 @@ class PCA_plus_GMM:
 
         from sklearn.mixture import GaussianMixture
         self.random_state = random_state
-        ndim = np.array(self.pca_score_vecs).shape[1]
+        ndim = np.array(self.clustering_vecs).shape[1]
 
-        if len(self.cluster_centers):
-            self.n_clusters = len(self.cluster_centers)
-            print('Running GMM with manually identified %i cluster centers on %i-dimensional data...' % (self.n_clusters,ndim))
-            self.gmm = GaussianMixture(n_components=self.n_clusters,
-                                       means_init=self.cluster_centers, tol=tol, max_iter=max_iter,
-                                       **kwargs).fit(self.pca_score_vecs)
+        # `warm_start = True` allows repeat calls to `.fit` to skip re-initialization
+        t0=time.time()
+        if len(self.init_cluster_centers):
+            print('Running GMM with manually identified %i cluster centers on %i-dimensional data...' % (self.get_gmm_nclusters(), ndim))
+            self.gmm = GaussianMixture(n_components=self.get_gmm_nclusters(),
+                                       means_init=self.init_cluster_centers, tol=tol, max_iter=max_iter, warm_start=True,
+                                       **kwargs).fit(self.clustering_vecs)
         else:
-            print('Running GMM with %s initialization with %i clusters on %i-dimensional data...' % (init_params, self.n_clusters,ndim))
-            self.gmm = GaussianMixture(n_components=self.n_clusters,
+            print('Running GMM with %s initialization with %i clusters on %i-dimensional data...' % (init_params, self.get_gmm_nclusters(), ndim))
+            self.gmm = GaussianMixture(n_components=self.get_gmm_nclusters(),
                                        init_params=init_params, tol=tol, max_iter=max_iter,
-                                       random_state=random_state, **kwargs).fit(self.pca_score_vecs)
+                                       random_state=random_state, warm_start=True,
+                                       **kwargs).fit(self.clustering_vecs)
+        print('Time elapsed: %1.2f seconds'%(time.time()-t0))
+
+        self.init_cluster_centers = self.gmm.means_
+
+    def rerun_GMM(self,max_iter=None):
+
+        if max_iter: self.gmm.max_iter=max_iter
+        ndim = np.array(self.clustering_vecs).shape[1]
+        print('Re-running GMM with %i clusters on %i-dimensional data...' % (self.get_gmm_nclusters(), ndim))
+
+        t0=time.time()
+        result = self.gmm.fit(self.clustering_vecs)
+        print('Time elapsed: %1.2f seconds'%(time.time()-t0))
+
+        return result
 
     def draw_ellipse(self, position, covariance, ax=None, **kwargs):
         """Draw an ellipse with a given position and covariance"""
@@ -1277,16 +1352,30 @@ class PCA_plus_GMM:
         ax.add_patch(Ellipse(position, width, height,
                              angle=angle, **kwargs))
 
-    def visualize_gmm_clusters(self,dim1=0,dim2=1,**kwargs):
+    def visualize_gmm_clusters(self,dim1=0,dim2=1,
+                               text_fontsize=12,**kwargs):
 
         self.fig=plt.figure(figsize=(8,6))
         self.ax_histogram=plt.subplot(111)
+
+        ndim = self.gmm.means_.shape[1]
+        if ndim == 1:
+            self.histogram1D(dim=0)
+            plt.twinx()
+            bins = self.clustering_vec_bins[0]
+            for pos,covar,w in zip(self.gmm.means_[:,0],
+                                   self.gmm.covariances_[:,0],
+                                   self.gmm.weights_):
+                g = w*np.exp( -(bins-pos)**2/(2*covar) )
+                plt.fill_between(bins,0,g,color='b',edgecolor='b',alpha=.4)
+            return
 
         # Make a new histogram plot
         self.histogram2D(dim1, dim2, ax=self.ax_histogram,**kwargs)
 
         # Loop over the identified clusters
         w_factor = 100 / self.gmm.weights_.max()
+        cluster_no=0
         for pos, covar, w in zip(self.gmm.means_, self.gmm.covariances_, self.gmm.weights_):
             # Find projection of this cluster onto dim1,dim2
             pos_dim12 = (pos[dim1], pos[dim2])
@@ -1295,6 +1384,16 @@ class PCA_plus_GMM:
             alpha = w * w_factor
             self.draw_ellipse(pos_dim12, covar_dim12, alpha=.5, ax=self.ax_histogram,
                               edgecolor='w')
+
+            # Label with a text number
+            t=plt.text(pos_dim12[0], pos_dim12[1],cluster_no,
+                       color='w',fontsize=text_fontsize+2,weight='bold',
+                       va="center",ha="center")
+            t=plt.text(pos_dim12[0], pos_dim12[1],cluster_no,
+                       color='k',fontsize=text_fontsize,
+                       va="center",ha="center")
+            cluster_no+=1
+
         self.draw()
 
     @staticmethod
@@ -1326,15 +1425,28 @@ class PCA_plus_GMM:
         interp = NearestNDInterpolator(np.transpose(valid), segmentation[valid])
         segmentation = interp(*np.indices(segmentation.shape))
 
-        return segmentation
+        return segmentation.astype(int)
 
-    def get_gmm_labels_map(self, smoothing=0.7,order_by = 'amplitude',
+    def get_gmm_nclusters(self):
+
+        try: return len(self.gmm.means_)
+        except AttributeError: # Maybe we didn't run GMM yet
+            return self.init_nclusters
+
+    def get_gmm_centers(self):
+
+        try:
+            return copy.copy(self.gmm.means_)
+        except AttributeError:  # Maybe we didn't run GMM yet
+            return self.init_cluster_centers
+
+    def get_gmm_maps(self, smoothing=0.7,order_by = 'amplitude',
                            plot=True,cmap='viridis',**kwargs):
 
-        assert order_by in ['amplitude','population']
+        assert order_by in ['amplitude','population',None]
         # Predict the labels
         print('Predicting cluster membership...')
-        labels = self.gmm.predict(self.pca_score_vecs)
+        labels = self.gmm.predict(self.clustering_vecs)
         # reshape labels
         img = self.scores_cube[0]
         labels_map = np.reshape(labels, img.shape)
@@ -1344,12 +1456,13 @@ class PCA_plus_GMM:
             labels_map = self.smooth_segmentation(labels_map,smoothing,**kwargs)
 
         # reorder labels
-        old_labels = np.unique(labels_map)
+        old_labels = np.unique(labels_map).astype(int)
         if order_by =='population':
             reordering_target = [np.sum(labels_map==label) for label in old_labels]
         elif order_by == 'amplitude':
             mean_amp_img = np.sum(np.abs(self.data_cube),axis=0) # sum on frequency axis
             reordering_target = [np.mean(mean_amp_img[labels_map==label]) for label in old_labels]
+        else: reordering_target = np.arange(len(old_labels))
         reordering = np.argsort(reordering_target) # smallest label will be first
 
         new_labels_map = labels_map.copy()
@@ -1365,24 +1478,37 @@ class PCA_plus_GMM:
             self.labels_map.plot(cmap=cmap)
             plt.gca().set_aspect('equal')
 
-        return self.labels_map
+        maps = {}
+        maps['labels']=self.labels_map
 
         # Get probabilities of belonging to each cluster
-        # TODO: propagate reordering to probs
-        probs = self.gmm.predict_proba(self.pca_score_vecs)
+        probs = self.gmm.predict_proba(self.clustering_vecs)
 
         self.prob_maps = [AWA(np.reshape(prob, img.shape),
                           adopt_axes_from=img)
-                      for prob in probs]
+                      for prob in probs.T[reordering]]
 
-        return self.labels_map
+        maps['probabilities']=self.prob_maps
+        maps['cluster_ids']=old_labels[reordering]
+        self.maps = maps
 
-    def get_labels_map_quality(self, smoothing=0.6, **kwargs):
+        return maps
+
+    def get_gmm_populations(self,order_by='population',**kwargs):
+
+        labels_map = self.get_gmm_maps(plot=False, order_by=order_by,
+                                       smoothing=0,**kwargs)['labels']
+        labels = np.unique(labels_map.astype(int))
+        pops = np.array([float(np.sum(labels_map == label)) for label in labels])
+
+        return AWA(pops,axes=[labels],axis_names=[r'Label $\nu$'])
+
+    def get_gmm_fidelity(self, smoothing=0.6, **kwargs):
 
         # How well do we reproduce the original data?
-        labels_map = self.get_gmm_labels_map(smoothing=smoothing, plot=False, **kwargs)
+        labels_map = self.get_gmm_maps(smoothing=smoothing, plot=False, **kwargs)['labels']
         data_cube = self.data_cube
-        dummy_data_cube = np.zeros(data_cube.shape)
+        dummy_data_cube = np.zeros(data_cube.shape,dtype=complex)
         Nkeys = dummy_data_cube.shape[0]
         for label in np.unique(labels_map):
             mask = (label == labels_map)
@@ -1394,6 +1520,92 @@ class PCA_plus_GMM:
         metric = 1 - diff / norm
 
         return float(metric)
+
+    get_gmm_quality = get_gmm_fidelity # An alias
+
+    def get_gmm_connectivities(self,order_by='population',thresh=None):
+        # This will tell us how domain "i" is connected to domain "j", relative to its self-connection
+
+        maps = self.get_gmm_maps(plot=False, order_by=order_by,smoothing=0)
+        N = len(maps['probabilities'])
+        connectivities = np.zeros((N, N))
+        for i in range(N):
+            map_i = maps['probabilities'][i]
+            Norm = np.sum(map_i ** 2)
+            for j in range(N):
+                if i==j: continue
+                map_j = maps['probabilities'][j]
+                connectivities[i, j] = np.sum(map_i * map_j) / Norm
+
+        # Specify a threshold to focus only on those connections exceeding a threshold strength (others suppressed)
+        if thresh: connectivities[connectivities<thresh] = 0
+
+        return connectivities
+
+    def get_gmm_connectivity(self):
+
+        order_by = 'population'
+        Cs = self.get_gmm_connectivities(order_by=order_by)
+        C = np.sum(Cs,axis=1)
+        populations = np.array(self.get_gmm_populations(order_by=order_by))
+        Cavg =np.sum(C*populations)/np.sum(populations)
+
+        return Cavg
+
+    def prune_gmm_clusters(self,cluster_ids,run_gmm=False,**kwargs):
+
+        # Edit the gmm in-situ by removing
+        self.gmm.means_bak_ = self.gmm.means_
+        self.gmm.covariances_bak_ = self.gmm.covariances_
+        self.gmm.weights_bak_ = self.gmm.weights_
+        self.gmm.precisions_cholesky_bak_ = self.gmm.precisions_cholesky_
+
+        keep = np.array([True]*len(self.gmm.means_bak_))
+        for cluster_id in cluster_ids: keep[cluster_id]=False
+
+        print('Pruning from %i clusters down to %i clusters.' % (self.get_gmm_nclusters(), np.sum(keep)))
+
+        self.init_cluster_centers = self.gmm.means_ = self.gmm.means_[keep]
+        self.gmm.covariances_ = self.gmm.covariances_[keep]
+        self.gmm.weights_ = self.gmm.weights_[keep]
+        self.gmm.precisions_cholesky_ = self.gmm.precisions_cholesky_[keep]
+
+        if run_gmm: self.run_GMM(**kwargs)
+
+    def prune_gmm_to_target_nclusters(self,target_nclusters=12,
+                                      rerun_GMM=False,**kwargs):
+
+        # Lop off one cluster at a time until we hit desired number
+        current_nclusters = self.get_gmm_nclusters()
+        while current_nclusters > target_nclusters:
+            Cs = self.get_gmm_connectivities()
+            C = np.sum(Cs,axis=1)
+            cluster_id_to_prune = self.maps['cluster_ids'][np.argmax(C)]
+            self.prune_gmm_clusters([cluster_id_to_prune])
+            current_nclusters = self.get_gmm_nclusters()
+            if rerun_GMM: self.rerun_GMM(**kwargs)
+
+    def prune_gmm_to_target_connectivity(self,target_connectivity=0.5,
+                                         rerun_GMM=False,**kwargs):
+
+        # Lop off one cluster at a time until we hit desired number
+        Cs = self.get_gmm_connectivities()
+        C = np.sum(Cs, axis=1)
+        Cmax = np.max(C)
+        while Cmax > target_connectivity:
+            cluster_id_to_prune = self.maps['cluster_ids'][np.argmax(C)]
+            self.prune_gmm_clusters([cluster_id_to_prune])
+            if rerun_GMM: self.rerun_GMM(**kwargs)
+            Cs = self.get_gmm_connectivities()
+            C = np.sum(Cs,axis=1)
+            Cmax = np.max(C)
+
+    #def pruning_loop(self,n_clusters_target,connectivity_thresh=0.3):
+        # This loop will eliminate minority clusters with connectivity above `connectivity_thresh`.
+        # It will stop when connectivity is eliminated, or number of clusters hits `n_clusters_target`.
+        # whichever comes first.
+
+
 
 
 class AutoRepLinescan(Hyperspectroscopy):
