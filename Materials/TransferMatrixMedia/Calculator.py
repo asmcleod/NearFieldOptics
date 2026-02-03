@@ -88,22 +88,23 @@ class Calculator():
             The numerical reflection coefficient with corresponding dimension of array (based on dimension of freq and q). 
         
         """
+
         r = self.analyticalReflectionCoefficient
         entranceMaterial = self.transferMatrix.entrance
         exitMaterial = self.transferMatrix.exit
         layerDictionary = self.transferMatrix.layerDictionary
-        
+
         subs = {}
         subs['c'] = 3e10
         subs['omega'] = 2*np.pi*freq
-         
+
         #for first boundary
         subs['k_z1'] = entranceMaterial.get_kz(freq,q)
         subs['epsilon_1'] = entranceMaterial.epsilon(freq,q)
         subs['mu_1'] = entranceMaterial.mu(freq,q)
-         
+
         for x in range(2, self.numLayers+2):
-             
+
             layer = layerDictionary['L'+str(x)]
             material = layer.get_material()
             surface = layerDictionary['S'+str(x-1)+str(x)]
@@ -112,16 +113,19 @@ class Calculator():
             subs['sigma{0}{1}'.format(x-1,x)] = surface.conductivity(freq)
             subs['epsilon_{}'.format(x)] = material.epsilon(freq,q)
             subs['mu_{}'.format(x)] = material.mu(freq,q)
-         
+
         #for last boundary
         subs['k_z{}'.format(self.numLayers+2)] = exitMaterial.get_kz(freq,q)
         subs['epsilon_{}'.format(self.numLayers+2)] = exitMaterial.epsilon(freq,q)
         subs['mu_{}'.format(self.numLayers+2)] = exitMaterial.mu(freq,q)
         surface = layerDictionary['S'+str(self.numLayers+1)+str(self.numLayers+2)]
         subs['sigma{0}{1}'.format(self.numLayers+1,self.numLayers+2)] = surface.conductivity(freq)
-        
-        numerics = sympy.lambdify(subs.keys(), r, modules='numpy')
-        r = numerics(*subs.values())
+
+        if not hasattr(self,'numerical_calculator'):
+            self.numerical_calculator = sympy.lambdify(subs.keys(), r, modules='numpy')
+
+        r = self.numerical_calculator(*subs.values())
+
         return r
     
     def assemble_analytical_reflectance(self):

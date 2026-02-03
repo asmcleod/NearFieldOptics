@@ -890,7 +890,7 @@ class PCA_plus_GMM:
         # sort with largest eigvals first
         eigvals = eigvals[::-1]
         Npcs = len(eigvals)
-        principal_components = W = V[:, ::-1]
+        principal_components = W = V[:, ::-1] # re-sort the columns
 
         # Plot eigenvalues
         if plot:
@@ -1353,7 +1353,9 @@ class PCA_plus_GMM:
                              angle=angle, **kwargs))
 
     def visualize_gmm_clusters(self,dim1=0,dim2=1,
-                               text_fontsize=12,**kwargs):
+                               text_fontsize=12,
+                               label_reordering=None,
+                               **kwargs):
 
         self.fig=plt.figure(figsize=(8,6))
         self.ax_histogram=plt.subplot(111)
@@ -1385,16 +1387,23 @@ class PCA_plus_GMM:
             self.draw_ellipse(pos_dim12, covar_dim12, alpha=.5, ax=self.ax_histogram,
                               edgecolor='w')
 
+            if label_reordering is not None:
+                try: cluster_label = list(label_reordering).index(cluster_no)
+                except ValueError:
+                    raise ValueError('cluster number %i must be found within `label reordering` list!'%cluster_no)
+            else:
+                cluster_label = cluster_no
+
             # Label with a text number
-            t=plt.text(pos_dim12[0], pos_dim12[1],cluster_no,
+            t=plt.text(pos_dim12[0], pos_dim12[1],cluster_label,
                        color='w',fontsize=text_fontsize+2,weight='bold',
                        va="center",ha="center")
-            t=plt.text(pos_dim12[0], pos_dim12[1],cluster_no,
+            t=plt.text(pos_dim12[0], pos_dim12[1],cluster_label,
                        color='k',fontsize=text_fontsize,
                        va="center",ha="center")
             cluster_no+=1
 
-        self.draw()
+        #self.draw()
 
     @staticmethod
     def smooth_segmentation(segmentation, smoothing=1, method='gaussian'):
@@ -1490,6 +1499,7 @@ class PCA_plus_GMM:
 
         maps['probabilities']=self.prob_maps
         maps['cluster_ids']=old_labels[reordering]
+        maps['label_reordering'] = reordering
         self.maps = maps
 
         return maps

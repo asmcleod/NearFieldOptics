@@ -45,17 +45,19 @@ class LayeredMediaTM(LayeredMedia):
         
         """
         freq,q,rsAWA = _prepare_freq_and_q_holder_(freq,q,angle=angle,entrance=entrance)
-        C = Calculator.Calculator(self.T_s)
-        C.assemble_analytical_reflection_coefficient()
-        rs = C.get_numerical_reflection_coefficient(freq,q)
+        if not hasattr(self,'C_s'):
+            self.C_s = Calculator.Calculator(self.T_s)
+            self.C_s.assemble_analytical_reflection_coefficient()
+        rs = self.C_s.get_numerical_reflection_coefficient(freq,q)
         rsAWA+=rs
         return rsAWA
         
     def analytical_reflection_s(self):
         """Get sympy analytical expression of reflection coefficient for s-polarized light."""
-        C = Calculator.Calculator(self.T_s)
-        C.assemble_analytical_reflection_coefficient()
-        rs = C.get_analytical_reflection_coefficient()
+        if not hasattr(self,'C_s'):
+            self.C_s = Calculator.Calculator(self.T_s)
+            self.C_s.assemble_analytical_reflection_coefficient()
+        rs = self.C_s.get_analytical_reflection_coefficient()
         return rs
         
     def reflection_p(self,freq,q=0,angle=None,\
@@ -75,17 +77,19 @@ class LayeredMediaTM(LayeredMedia):
         
         """        
         freq,q,rpAWA = _prepare_freq_and_q_holder_(freq,q,angle=angle,entrance=entrance)
-        C = Calculator.Calculator(self.T_p)
-        C.assemble_analytical_reflection_coefficient()
-        rp = C.get_numerical_reflection_coefficient(freq,q)
+        if not hasattr(self,'C_p'):
+            self.C_p = Calculator.Calculator(self.T_p)
+            self.C_p.assemble_analytical_reflection_coefficient()
+        rp = self.C_p.get_numerical_reflection_coefficient(freq,q)
         rpAWA+=rp
         return rpAWA
     
     def analytical_reflection_p(self):
         """Get sympy analytical expression of reflection coefficient for p-polarized light."""
-        C = Calculator.Calculator(self.T_p)
-        C.assemble_analytical_reflection_coefficient()
-        rp = C.get_analytical_reflection_coefficient()
+        if not hasattr(self,'C_p'):
+            self.C_p = Calculator.Calculator(self.T_p)
+            self.C_p.assemble_analytical_reflection_coefficient()
+        rp = self.C_p.get_analytical_reflection_coefficient()
         return rp
     
     def coulomb_kernel(self,freq,q=0,layer_number=2,mode='after',\
