@@ -12,6 +12,13 @@ figsize=(12, 6)
 
 cmplx_dtypes = [complex,np.complex64]
 
+def median_cmplx(input):
+
+    result =  np.median(np.real(input)) + 1j*np.median(np.imag(input))
+    if not np.iscomplex(result): result = result.real
+
+    return result
+
 cv2_criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10000, 1e-6)
 
 class ImageSynchronizer:
@@ -316,7 +323,7 @@ class Hyperspectroscopy(object):
         img = img.copy()
         if sanitize_where is None: sanitize_where = np.zeros(img.shape).astype(bool)
         sanitize_where += np.isnan(img)
-        img[sanitize_where] = np.median(img[~sanitize_where])
+        img[sanitize_where] = median_cmplx(img[~sanitize_where])
 
         return img
 
@@ -367,7 +374,7 @@ class Hyperspectroscopy(object):
         for i, img_val in enumerate(img_vals):
             if i == 0: continue
             back_ind = np.max((0, i - look_back))
-            preval = np.median(img_vals[back_ind:i])
+            preval = median_cmplx(img_vals[back_ind:i])
             if img_val - preval > thresh * discont:
                 img_vals[i] -= discont
             elif img_val - preval < -thresh * discont:
@@ -410,7 +417,7 @@ class Hyperspectroscopy(object):
                         img.plot(colorbar=False)
                         plt.gca().set_aspect('equal')
                         plt.title('Before unwrapping: %s' % str((direction, channel, key)))
-                        m=np.median(img[np.isfinite(img)])
+                        m=median_cmplx(img[np.isfinite(img)])
                         if plot_clim is not None: plt.clim(*plot_clim)
                         else: plt.clim(m-discont,m+discont)
 
@@ -422,7 +429,7 @@ class Hyperspectroscopy(object):
                         new_img.plot(colorbar=False)
                         plt.gca().set_aspect('equal')
                         plt.title('After flattening: %s' % str((direction, channel, key)))
-                        m=np.median(img[np.isfinite(img)])
+                        m=median_cmplx(img[np.isfinite(img)])
                         if plot_clim is not None: plt.clim(*plot_clim)
                         else: plt.clim(m-discont,m+discont)
 
@@ -434,7 +441,8 @@ class Hyperspectroscopy(object):
                       mask=None,fourier_highpass=None,
                       line_poly=None,
                       median_of_diffs_flatten=False,
-                      median_flatten=False):
+                      median_flatten=False,
+                      median_divide=False):
 
         from common import numerical_recipes as numrec
         img = copy.copy(img) # Don't modify the original
@@ -465,6 +473,7 @@ class Hyperspectroscopy(object):
             mask = mask.T
 
         #---- ALl the line-by-line leveling
+        img_median = median_cmplx(img_view[mask*np.isfinite(img_view)])
         for i,line,mline in zip(range(img_view.shape[0]),
                                 img_view,mask):
             if not np.any(mline): continue
@@ -482,11 +491,17 @@ class Hyperspectroscopy(object):
                 if i == 0: pass
                 else:
                     mline = mask[i]*mask[i-1] # mutual mask
-                    diff = img_view[i] - img_view[i - 1]
+                    diff = img_view[i] - img_view[i - 1] # compare to original image
                     if np.any(mline):
-                        img_view[i] -= np.median( diff[mline] )  # This is the "median of differences" flattening scheme
+                        linecorr = median_cmplx( diff[mline] )  # This is the "median of differences" flattening scheme
+                        if median_divide: line *= 1/(1+linecorr/img_median)
+                        else: line -= linecorr
 
-            elif median_flatten: line -= np.median(line[mline])
+            elif median_flatten:
+                linecorr = median_cmplx(line[mline])-img_median # deviation from uniformity
+
+                if median_divide: line *= 1/(1+linecorr/img_median)
+                else: line -= linecorr
 
         return img
 
@@ -495,9 +510,11 @@ class Hyperspectroscopy(object):
                        fourier_highpass=.01,
                        median_of_diffs_flatten=False,
                        median_flatten=False,
+                      median_divide=False,
                        line_poly=None,
                        fast_axis=0,
-                       plot=False,plot_mask=False):
+                       plot=False,plot_mask=False,
+                       clim=None):
         """
         This is mostly used to flatten topographies before using them for synchronization.
         But could also be used to flatten a near-field amplitude or phase
@@ -544,9 +561,11 @@ class Hyperspectroscopy(object):
                         plt.title('Before flattening: %s' % str((direction, channel, key)))
 
                         keep=self.valid_mask_processed.astype(bool)*np.isfinite(img)
-                        m,s = np.median(img[keep]),np.std(img[keep])
-                        plot_clim = (m-self.clim_nstds*s,
-                                     m+self.clim_nstds*s)
+                        m,s = median_cmplx(img[keep]),np.std(img[keep])
+                        if clim is None:
+                            plot_clim = (m-self.clim_nstds*s,
+                                         m+self.clim_nstds*s)
+                        else: plot_clim=clim
                         plt.clim(*plot_clim)
 
                     img_flattened = self.flatten_image(img,fast_axis=fast_axis,
@@ -554,7 +573,8 @@ class Hyperspectroscopy(object):
                                                       mask=mask,fourier_highpass=fourier_highpass,
                                                       line_poly=line_poly,
                                                       median_of_diffs_flatten=median_of_diffs_flatten,
-                                                      median_flatten=median_flatten)
+                                                      median_flatten=median_flatten,
+                                                        median_divide=median_divide)
 
                     if plot:
                         plt.subplot(122)
@@ -564,9 +584,11 @@ class Hyperspectroscopy(object):
                         plt.title('After flattening: %s' % str((direction, channel, key)))
 
                         keep=self.valid_mask_processed.astype(bool)*np.isfinite(img)
-                        m,s = np.median(img[keep]),np.std(img[keep])
-                        plot_clim = (m-self.clim_nstds*s,
-                                     m+self.clim_nstds*s)
+                        m,s = median_cmplx(img[keep]),np.std(img[keep])
+                        if clim is None:
+                            plot_clim = (m-self.clim_nstds*s,
+                                         m+self.clim_nstds*s)
+                        else: plot_clim=clim
                         plt.clim(*plot_clim)
 
                         if plot_mask:
@@ -636,7 +658,7 @@ class Hyperspectroscopy(object):
                 plt.grid(ls='--', color='w')
                 if plot_clim is None:
                     keep=self.valid_mask_processed.astype(bool)*np.isfinite(img)
-                    m,s = np.median(img[keep]),np.std(img[keep])
+                    m,s = median_cmplx(img[keep]),np.std(img[keep])
                     plot_clim = (m-self.clim_nstds*s,
                                  m+self.clim_nstds*s)
                 plt.clim(*plot_clim)
@@ -661,7 +683,7 @@ class Hyperspectroscopy(object):
                 plt.grid(ls='--', color='w')
                 if plot_clim is None:
                     keep = self.valid_mask_processed.astype(bool)*np.isfinite(img)
-                    m, s = np.median(img[keep]), np.std(img[keep])
+                    m, s = median_cmplx(img[keep]), np.std(img[keep])
                     plot_clim = (m - self.clim_nstds * s,
                                  m + self.clim_nstds * s)
                 plt.clim(*plot_clim)
@@ -725,7 +747,7 @@ class Hyperspectroscopy(object):
                         plt.grid(ls='--', color='w')
                         if plot_clim is None:
                             keep=self.valid_mask_processed.astype(bool)*np.isfinite(img)
-                            m,s = np.median(img[keep]),np.std(img[keep])
+                            m,s = median_cmplx(img[keep]),np.std(img[keep])
                             plot_clim = (m-self.clim_nstds*s,
                                          m+self.clim_nstds*s)
                         plt.clim(*plot_clim)
@@ -743,7 +765,7 @@ class Hyperspectroscopy(object):
                         plt.grid(ls='--', color='w')
                         if plot_clim is None:
                             keep=self.valid_mask_processed.astype(bool)*np.isfinite(img)
-                            m,s = np.median(img[keep]),np.std(img[keep])
+                            m,s = median_cmplx(img[keep]),np.std(img[keep])
                             plot_clim = (m-self.clim_nstds*s,
                                          m+self.clim_nstds*s)
                         plt.clim(*plot_clim)
@@ -759,7 +781,7 @@ class Hyperspectroscopy(object):
             # Replace internal missing data with medians
             mask = self.valid_mask.copy()
             for img in imgs:
-                m = np.median(img[self.valid_mask])
+                m = median_cmplx(img[self.valid_mask])
 
                 img[~self.valid_mask] = m
 
@@ -925,7 +947,7 @@ class PCA_plus_GMM:
                 """
                 Xvals = np.abs(xvals)
 
-                redundant = (xvals.real == np.median(xvals.real))
+                redundant = (xvals.real == median_cmplx(xvals.real))
                 xvals = xvals[~redundant]
                 Xvals = Xvals[~redundant]
 
@@ -975,7 +997,7 @@ class PCA_plus_GMM:
         data_cube = data_cube.copy()
         if valid_mask is not None:
             assert valid_mask.shape == data_cube.shape[1:]
-            for img in data_cube: img[~valid_mask] = np.median(img[valid_mask])
+            for img in data_cube: img[~valid_mask] = median_cmplx(img[valid_mask])
         self.data_cube = data_cube
 
         # apply weights
@@ -1229,8 +1251,8 @@ class PCA_plus_GMM:
             mean_score1,mean_score2 = self.map1.cslice[x,y],self.map2.cslice[x,y]
             self.tentative_xy = (mean_score1,mean_score2)
             #picked_region = ( (x-self.map_X)**2 + (y-self.map_Y)**2  < self.picker_radius**2 )
-            #mean_score1,mean_score2 = np.median(self.map1[picked_region]),\
-            #                          np.median(self.map2[picked_region])
+            #mean_score1,mean_score2 = median_cmplx(self.map1[picked_region]),\
+            #                          median_cmplx(self.map2[picked_region])
             #self.tentative_xy = (mean_score1,mean_score2)
             plt.sca(self.ax_map)
             try: self.tentative_map_point.remove()
@@ -1758,7 +1780,7 @@ class AutoRepLinescan(Hyperspectroscopy):
 
             for i in range(len(topo)):
                 topo_line = topo[i]
-                topo_line = topo_line - np.median(topo_line)
+                topo_line = topo_line - median_cmplx(topo_line)
                 shift = np.sum((ys - y0) * topo_line) / np.sum(topo_line)
                 new_ys = ys - shift
                 for channel in self.channels:
@@ -1817,7 +1839,7 @@ class AutoRepLinescan(Hyperspectroscopy):
                 plt.figure()
                 img.plot()
                 plt.title('Before far-field correction: %s'%direction)
-                m = np.median(img[np.isfinite(img)])
+                m = median_cmplx(img[np.isfinite(img)])
                 s = np.std(img[np.isfinite(img)])
                 plt.clim(m - nstds_clim * s, m + nstds_clim * s)
     
@@ -1874,7 +1896,7 @@ class AutoRepLinescan(Hyperspectroscopy):
                     c = next(cs)
                     linefunc(start, color=c)
                     linefunc(stop, color=c)
-                m = np.median(img[np.isfinite(img)])
+                m = median_cmplx(img[np.isfinite(img)])
                 s = np.std(img[np.isfinite(img)])
                 plt.clim(m - nstds_clim * s, m + nstds_clim * s)
 

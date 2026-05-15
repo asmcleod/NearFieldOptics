@@ -491,11 +491,20 @@ class TabulatedMaterial(BaseIsotropicMaterial):
         BaseIsotropicMaterial.__init__(self)
         
     def epsilon(self,freq,q=0):
-        
-        eps_kwargs=self.eps_kwargs
-        
-        return self.factor*\
-                self._eps_data.interpolate_axis(freq,axis=0,**eps_kwargs)
+
+        # If we evaluate at the native frequency points
+        faxis=self._eps_data.axes[0]
+        try:
+            if numpy.any(freq - faxis): raise ValueError # if they are not equal, proceed to interpolation
+            eps = self._eps_data
+
+        # Or if we have to interpolate
+        except:
+            eps_kwargs=self.eps_kwargs
+            eps = self.factor*\
+                    self._eps_data.interpolate_axis(freq,axis=0,**eps_kwargs)
+
+        return numpy.array(eps)
     
 class TabulatedMagneticMaterial(BaseIsotropicMaterial):
     
@@ -660,9 +669,10 @@ class SingleLayerGraphene(IsotropicSurface):
         f=(1-1/4.*zeta_bar*cmath.log((2.+zeta_bar)/(2.-zeta_bar)))
         
         alpha=1/137.
-        sigma=1j*(c*alpha/pi)*f/zeta_bar*self.layers
+        sigma0 = (c*alpha/4)
+        sigma=1j*sigma0 * (4/pi * f)/zeta_bar*self.layers
         
-        sigma+=(c*alpha/pi)*self.residual_conductivity
+        sigma+=sigma0*self.residual_conductivity
 
         return ensure_complex(sigma)
 

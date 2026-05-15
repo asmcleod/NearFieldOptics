@@ -27,6 +27,16 @@ class LayeredMediaTM(LayeredMedia):
          
         self.T_p = mb.TransferMatrix(self,polarization='p')
         self.T_s = mb.TransferMatrix(self,polarization='s')
+
+    def __getstate__(self):
+
+        state = self.__dict__.copy()
+        unpicklables = (Calculator.Calculator,) # We can't pickle this one, but it will be re-initialized when needed
+        for key,val in self.__dict__.items():
+            if isinstance(val,unpicklables):
+                del state[key]
+
+        return state
         
     def reflection_s(self,freq,q=0,angle=None,\
                      entrance=None,exit=None,**kwargs):

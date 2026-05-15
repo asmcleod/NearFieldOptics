@@ -124,6 +124,12 @@ class Calculator():
         if not hasattr(self,'numerical_calculator'):
             self.numerical_calculator = sympy.lambdify(subs.keys(), r, modules='numpy')
 
+            try:
+                from numba import njit
+                self.numerical_calculator = njit( self.numerical_calculator)
+                Logger.write('Successfully wrapped numerical calculator with `njit` just-in-time compilation.')
+            except ImportError: pass
+
         r = self.numerical_calculator(*subs.values())
 
         return r
