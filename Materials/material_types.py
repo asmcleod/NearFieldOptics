@@ -1739,7 +1739,7 @@ class UniaxialMaterial(BaseUniaxialMaterial,IsotropicMaterial):
         
         ##Process phonon params##
         if len(phonon_params):
-            if not hasattr(phonon_params[0][0],'__len__'): phonon_params=[phonon_params]*3
+            if not hasattr(phonon_params[0][0],'__len__'): phonon_params=[phonon_params]*2
             Logger.raiseException('*phonon_params* should be either a phonon parameter set (list of phonon tuples) or '+\
                                   'a list of two phonon parameter sets (for the ordinary and '+\
                                   'extraordinary optical components, respectively).',\

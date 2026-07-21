@@ -385,10 +385,10 @@ SiN4_Bulk=IsotropicMaterial(eps_infinity=2,\
 
 eps_infinity=1.9259
 
-lp = numpy.array([[14.261,    1072,  49],\
+lp = numpy.array([[14.261,    1072,  49],
                   [0.18416,  1270,  216],
-                  [1.4,    802.3,  80],\
-                  [9.972,  462.9, 30],\
+                  [1.4,    802.3,  80],
+                  [9.972,  462.9, 30],
                   [0.46239, 1205, 78]])
 for i in range(len(lp)): lp[i,0]*=lp[i,1]*lp[i,2]
 
@@ -408,10 +408,12 @@ except: print('Failed to load pickle')
 ########################
 
 ##Lorentz-Gauss parameters from Kucirkova & Navratil 1994##
-Kucirkova_bulk_params=numpy.array([[.8,1172,13,65],\
-                                   [2.9,1090,12,16],\
-                                   [2.8,1060,5,26],\
-                                   [.4,803,35,27]]).astype(float)
+Kucirkova_bulk_params=numpy.array([[.8,1172,13,65],
+                                   [2.9,1090,12,16],
+                                   [2.8,1060,5,26],
+                                   [.4,803,35,27],
+                                   [1.46,460,13,14],
+                                   [0.84,544,164,2]]).astype(float)
 Kucirkova_bulk_params[:,0]*=1e5*numpy.sqrt(pi)/2.
 Kucirkova_bulk_params[:,0]/=Kucirkova_bulk_params[:,1] #Divide by frequency
 Kucirkova_bulk_params[:,0]/=Kucirkova_bulk_params[:,3] #Divide by gaussian width
@@ -420,13 +422,15 @@ SiO2_Bulk=IsotropicMaterial(eps_infinity=1.96,\
                             eps_vps=Kucirkova_bulk_params)
 
 #########################
-#---SiO2: Amorphous 300nm
+#---SiO2: Amorphous 300nm; "sample 3b" from Kucirkova & Navratil 1994
 #########################
 
-Kucirkova_300nm_params=numpy.array([[1.73,1147,40,81],\
-                                    [1.5,1091,.3,24],\
-                                    [3.3,1060,8,30],\
-                                    [.35,808,10,32]])
+Kucirkova_300nm_params=numpy.array([[1.73,1147,40,81],
+                                    [1.5,1091,.3,24],
+                                    [3.3,1060,8,30],
+                                    [.35,808,10,32],
+                                    [0.9,455.3,0.2,21],
+                                    [2.7,380,188,83]])
 Kucirkova_300nm_params[:,0]*=1e5*numpy.sqrt(pi)/2.
 Kucirkova_300nm_params[:,0]/=Kucirkova_300nm_params[:,1] #Divide by frequency
 Kucirkova_300nm_params[:,0]/=Kucirkova_300nm_params[:,3] #Divide by gaussian width
@@ -436,13 +440,15 @@ SiO2_300nm=IsotropicMaterial(eps_infinity=1.96,\
 SiO2_300nm.name='SiO2_300nm'
 
 ###########################
-#---SiO2: Amorphous 300nm 2
+#---SiO2: Amorphous 300nm; "sample 2a" from Kucirkova & Navratil 1994
 ###########################
 
-Kucirkova_300nm2_params=numpy.array([[1.7,1150,40,80],\
-                                    [3.1,1080,.1,26],\
-                                    [1.1,1045,10,17],\
-                                    [.34,800,.1,56]])
+Kucirkova_300nm2_params=numpy.array([[1.7,1150,40,80],
+                                    [3.1,1080,.1,26],
+                                    [1.1,1045,10,17],
+                                    [.34,800,.1,56],
+                                    [0.9,455,0.1,20],
+                                    [1.5,250,0.1,176]])
 Kucirkova_300nm2_params[:,0]*=1e5*numpy.sqrt(pi)/2.
 Kucirkova_300nm2_params[:,0]/=Kucirkova_300nm2_params[:,1] #Divide by frequency
 Kucirkova_300nm2_params[:,0]/=Kucirkova_300nm2_params[:,3] #Divide by gaussian width

@@ -1584,6 +1584,10 @@ class PCA_plus_GMM:
 
         return Cavg
 
+    def get_gmm_aic_score(self): return self.gmm.aic(self.clustering_vecs)
+
+    def get_gmm_bic_score(self): return self.gmm.bic(self.clustering_vecs)
+
     def prune_gmm_clusters(self,cluster_ids,run_gmm=False,**kwargs):
 
         # Edit the gmm in-situ by removing
