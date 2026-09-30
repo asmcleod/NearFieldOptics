@@ -91,11 +91,16 @@ BN_STW=AnisotropicMaterial(eps_infinity=[4.95,4.95,4.1],\
                            eps_lps=eps_lps)
 
 
-w_TOs=[1360]; w_LOs=[1614]; gs=[7]; eps_inf=2.95; eps0=6.9
+#Caldwell et al. 2014 Nat. Commun. 5, 5221, Supplementary Table 1
+#The SI table labels the 1360/1614 mode as "c, z", but it is the in-plane (a,b)
+#mode: the upper Reststrahlen band is Type II (eps_t<0), and each row satisfies
+#LST with its own eps_inf (4.9*(1614/1360)**2=6.9, 2.95*(825/760)**2=3.48).
+#Previously eps_inf was swapped between in-plane and c axis.
+w_TOs=[1360]; w_LOs=[1614]; gs=[7]; eps_inf=4.9; eps0=6.9 #in-plane (a,b)
 eps_lps=[[(eps_inf*(w_LO**2-w_TO**2),w_TO,g) for w_TO,w_LO,g in zip(w_TOs,w_LOs,gs)]]*2
-w_TOs=[760]; w_LOs=[825]; gs=[2]; eps_inf=4.9; eps0=3.48
+w_TOs=[760]; w_LOs=[825]; gs=[2]; eps_inf=2.95; eps0=3.48 #c axis
 eps_lps+=[[(eps_inf*(w_LO**2-w_TO**2),w_TO,g) for w_TO,w_LO,g in zip(w_TOs,w_LOs,gs)]]
-BN_Caldwell=AnisotropicMaterial(eps_infinity=[2.95,2.95,4.9],\
+BN_Caldwell=AnisotropicMaterial(eps_infinity=[4.9,4.9,2.95],\
                            eps_lps=eps_lps)
 
 ##############
